@@ -16,7 +16,7 @@ RUN mvn clean package -DskipTests
 
 # --- Phase 2: Runtime ---
 # Use a lightweight JRE image to reduce the final image size
-FROM openjdk:17-jdk-slim
+FROM eclipse-temurin:17-jre-alpine
 
 WORKDIR /app
 
