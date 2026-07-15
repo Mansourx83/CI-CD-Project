@@ -17,6 +17,10 @@ spec:
     volumeMounts:
     - name: docker-sock
       mountPath: /var/run/docker.sock
+  - name: kubectl
+    image: bitnami/kubectl:latest
+    command: ['cat']
+    tty: true
   volumes:
   - name: docker-sock
     hostPath:
@@ -46,6 +50,13 @@ spec:
                             }
                         }
                     }
+                }
+            }
+        }
+        stage('Deploy to K8s') {
+            steps {
+                container('kubectl') {
+                    sh 'kubectl set image deployment/spring-boot-app spring-boot-app=mansour19/my-app:${env.BUILD_NUMBER}'
                 }
             }
         }
