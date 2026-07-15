@@ -53,6 +53,19 @@ spec:
                 }
             }
         }
+        stage('Verify K8s Connection') {
+            steps {
+                container('kubectl') {
+                    sh '''
+                    echo "--- Verifying Kubernetes Connection ---"
+                    kubectl cluster-info
+                    kubectl get nodes
+                    echo "Checking if deployment exists..."
+                    kubectl get deployment spring-boot-app
+                    '''
+                }
+            }
+        }
         stage('Deploy to K8s') {
             steps {
                 container('kubectl') {
