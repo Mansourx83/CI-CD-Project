@@ -5,31 +5,40 @@ pipeline {
 apiVersion: v1
 kind: Pod
 spec:
+
   containers:
+
   - name: maven
-    image: maven:3.8.5-openjdk-17
-    command: ['cat']
+    image: maven:3.9.9-eclipse-temurin-17
+    command:
+      - cat
     tty: true
+
   - name: docker
     image: docker:27.1
-    command: ['cat']
+    command:
+      - cat
     tty: true
     volumeMounts:
-    - name: docker-sock
-      mountPath: /var/run/docker.sock
+      - name: docker-sock
+        mountPath: /var/run/docker.sock
+
   - name: kubectl
-    image: bitnami/kubectl:latest
-    command: ['/bin/sh', '-c']
-    args: ['cat']
+    image: bitnami/kubectl:1.31
+    command:
+      - cat
     tty: true
+
   volumes:
-  - name: docker-sock
-    hostPath:
-      path: /var/run/docker.sock
+    - name: docker-sock
+      hostPath:
+        path: /var/run/docker.sock
 '''
         }
     }
+
     stages {
+
         stage('Build with Maven') {
             steps {
                 container('maven') {
@@ -39,38 +48,77 @@ spec:
                 }
             }
         }
-        stage('Docker Build and Push') {
+
+        stage('Docker Build & Push') {
             steps {
                 container('docker') {
                     script {
                         docker.withRegistry('', 'docker-cred') {
+
                             dir('spring-boot-app') {
-                                def customImage = docker.build("mansour19/my-app:${env.BUILD_NUMBER}")
-                                customImage.push()
-                                customImage.push('latest')
+
+                                def app = docker.build("mansour19/my-app:${BUILD_NUMBER}")
+
+                                app.push()
+
+                                app.push("latest")
                             }
                         }
                     }
                 }
             }
         }
-        stage('Verify K8s Connection') {
+
+        stage('Debug Kubectl') {
             steps {
                 container('kubectl') {
+
                     sh '''
-                    echo "--- Verifying Kubernetes Connection ---"
+                    echo "========== DEBUG =========="
+
+                    whoami
+
+                    pwd
+
+                    ls -la
+
+                    which kubectl
+
+                    kubectl version --client
+
+                    echo "==========================="
+                    '''
+                }
+            }
+        }
+
+        stage('Verify Cluster') {
+            steps {
+                container('kubectl') {
+
+                    sh '''
                     kubectl cluster-info
+
                     kubectl get nodes
-                    echo "Checking if deployment exists..."
+
                     kubectl get deployment spring-boot-app
                     '''
                 }
             }
         }
-        stage('Deploy to K8s') {
+
+        stage('Deploy') {
             steps {
                 container('kubectl') {
-                    sh 'kubectl set image deployment/spring-boot-app spring-boot-app=mansour19/my-app:${env.BUILD_NUMBER}'
+
+                    sh """
+                    kubectl set image deployment/spring-boot-app \
+                    spring-boot-app=mansour19/my-app:${BUILD_NUMBER}
+                    """
+
+                    sh '''
+                    kubectl rollout status deployment/spring-boot-app
+                    '''
                 }
             }
         }
