@@ -14,6 +14,7 @@ spec:
     - cat
     tty: true
 
+
   - name: docker
     image: docker:27.1
     command:
@@ -23,13 +24,20 @@ spec:
     - name: docker-sock
       mountPath: /var/run/docker.sock
 
+
   - name: kubectl
-    image: bitnami/kubectl:latest
+    image: alpine:3.20
     command:
-    - cat
+    - /bin/sh
+    - -c
+    - |
+      apk add --no-cache kubectl
+      while true; do sleep 30; done
     tty: true
 
+
   volumes:
+
   - name: docker-sock
     hostPath:
       path: /var/run/docker.sock
@@ -50,11 +58,16 @@ spec:
                     dir('spring-boot-app') {
 
                         sh '''
+                        echo "Building Maven project..."
                         mvn clean package -DskipTests
                         '''
+
                     }
+
                 }
+
             }
+
         }
 
 
@@ -82,12 +95,19 @@ spec:
 
                                 customImage.push('latest')
 
+
                             }
+
                         }
+
                     }
+
                 }
+
             }
+
         }
+
 
 
 
@@ -97,20 +117,19 @@ spec:
 
                 container('kubectl') {
 
-
                     sh '''
 
-                    echo "Checking Kubernetes"
+                    echo "Checking Kubernetes connection..."
 
                     kubectl cluster-info
 
 
-                    echo "Checking Nodes"
+                    echo "Checking nodes..."
 
                     kubectl get nodes
 
 
-                    echo "Checking Deployment"
+                    echo "Checking application deployment..."
 
                     kubectl get deployment spring-boot-app -n default
 
@@ -135,7 +154,7 @@ spec:
 
                     sh """
 
-                    echo "Updating image"
+                    echo "Updating Kubernetes deployment..."
 
 
                     kubectl set image deployment/spring-boot-app \
@@ -144,11 +163,14 @@ spec:
 
 
 
-                    echo "Waiting rollout"
+                    echo "Waiting for rollout..."
 
 
                     kubectl rollout status deployment/spring-boot-app \
                     -n default
+
+
+                    echo "Deployment completed successfully"
 
 
                     """
@@ -161,4 +183,5 @@ spec:
 
 
     }
+
 }
