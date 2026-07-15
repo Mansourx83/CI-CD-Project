@@ -25,7 +25,7 @@ spec:
         }
     }
     stages {
-        stage('Build') {
+        stage('Build with Maven') {
             steps {
                 container('maven') {
                     dir('spring-boot-app') {
@@ -42,6 +42,7 @@ spec:
                             dir('spring-boot-app') {
                                 def customImage = docker.build("mansour19/my-app:${env.BUILD_NUMBER}")
                                 customImage.push()
+                                customImage.push('latest')
                             }
                         }
                     }
