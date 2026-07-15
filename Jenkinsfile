@@ -1,15 +1,11 @@
 pipeline {
 
     agent {
-
         kubernetes {
-
             yaml '''
 apiVersion: v1
 kind: Pod
-
 spec:
-  serviceAccountName: jenkins
   containers:
 
   - name: maven
@@ -18,40 +14,25 @@ spec:
     - cat
     tty: true
 
-
   - name: docker
     image: docker:27.1
     command:
     - cat
     tty: true
-
     volumeMounts:
     - name: docker-sock
       mountPath: /var/run/docker.sock
 
-
   - name: kubectl
-    image: alpine:3.20
-
+    image: bitnami/kubectl:latest
     command:
-    - /bin/sh
-    - -c
-
-    args:
-    - |
-      apk add --no-cache kubectl
-      while true; do sleep 30; done
-
+    - cat
     tty: true
 
-
-
   volumes:
-
   - name: docker-sock
     hostPath:
       path: /var/run/docker.sock
-
 '''
         }
     }
@@ -71,13 +52,9 @@ spec:
                         sh '''
                         mvn clean package -DskipTests
                         '''
-
                     }
-
                 }
-
             }
-
         }
 
 
@@ -90,35 +67,26 @@ spec:
 
                     script {
 
-                        docker.withRegistry(
-                            '',
-                            'docker-cred'
-                        ) {
+                        docker.withRegistry('', 'docker-cred') {
 
 
                             dir('spring-boot-app') {
 
 
-                                def image = docker.build(
-                                    "mansour19/my-app:${BUILD_NUMBER}"
+                                def customImage = docker.build(
+                                    "mansour19/my-app:${env.BUILD_NUMBER}"
                                 )
 
 
-                                image.push()
+                                customImage.push()
 
-                                image.push('latest')
-
+                                customImage.push('latest')
 
                             }
-
                         }
-
                     }
-
                 }
-
             }
-
         }
 
 
@@ -129,15 +97,23 @@ spec:
 
                 container('kubectl') {
 
+
                     sh '''
 
                     echo "Checking Kubernetes"
 
                     kubectl cluster-info
 
+
+                    echo "Checking Nodes"
+
                     kubectl get nodes
 
-                    kubectl get deployment spring-boot-app
+
+                    echo "Checking Deployment"
+
+                    kubectl get deployment spring-boot-app -n default
+
 
                     '''
 
@@ -146,6 +122,7 @@ spec:
             }
 
         }
+
 
 
 
@@ -158,14 +135,23 @@ spec:
 
                     sh """
 
+                    echo "Updating image"
+
+
                     kubectl set image deployment/spring-boot-app \
-                    spring-boot-app=mansour19/my-app:${BUILD_NUMBER}
+                    spring-boot-app=mansour19/my-app:${env.BUILD_NUMBER} \
+                    -n default
 
 
-                    kubectl rollout status deployment/spring-boot-app
+
+                    echo "Waiting rollout"
+
+
+                    kubectl rollout status deployment/spring-boot-app \
+                    -n default
+
 
                     """
-
 
                 }
 
@@ -175,5 +161,4 @@ spec:
 
 
     }
-
 }
