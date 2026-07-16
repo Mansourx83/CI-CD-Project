@@ -6,8 +6,9 @@ pipeline {
 apiVersion: v1
 kind: Pod
 spec:
+  serviceAccountName: jenkins
   containers:
-
+ 
   - name: maven
     image: maven:3.8.5-openjdk-17
     command:
