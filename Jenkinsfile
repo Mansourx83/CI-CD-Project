@@ -63,7 +63,7 @@ spec:
                         withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_AUTH_TOKEN')]) {
                             sh '''
                             echo "Running SonarQube analysis..."
-                            mvn sonar:sonar \
+                            mvn org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar \
                               -Dsonar.login=$SONAR_AUTH_TOKEN \
                               -Dsonar.host.url=${SONAR_URL}
                             '''
