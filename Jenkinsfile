@@ -11,8 +11,9 @@ spec:
   - name: maven
     image: maven:3.8.5-openjdk-17
     command:
-    - cat
-    ty: true
+    - sleep
+    - "999999"
+    tty: true
 
   - name: docker
     image: docker:27.1
