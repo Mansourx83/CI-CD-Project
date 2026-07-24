@@ -7,14 +7,12 @@ kind: Pod
 spec:
   serviceAccountName: jenkins
   containers:
-
   - name: maven
     image: maven:3.8.5-openjdk-17
     command:
     - sleep
     - "999999"
     tty: true
-
   - name: docker
     image: docker:27.1
     command:
@@ -23,7 +21,6 @@ spec:
     volumeMounts:
     - name: docker-sock
       mountPath: /var/run/docker.sock
-
   - name: kubectl
     image: alpine:3.20
     command:
@@ -33,7 +30,6 @@ spec:
       apk add --no-cache kubectl
       while true; do sleep 30; done
     tty: true
-
   volumes:
   - name: docker-sock
     hostPath:
@@ -41,11 +37,9 @@ spec:
 '''
         }
     }
-
     environment {
         SONAR_URL = "http://sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
     }
-
     stages {
         stage('Build with Maven') {
             steps {
@@ -59,14 +53,20 @@ spec:
                 }
             }
         }
-
         stage('Static Code Analysis (SonarQube)') {
             steps {
                 container('maven') {
                     dir('spring-boot-app') {
                         withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_AUTH_TOKEN')]) {
                             sh '''
-                            echo "Running SonarQube analysis..."
+                            echo "=== Debug: Checking token ==="
+                            echo "Token length: ${#SONAR_AUTH_TOKEN}"
+
+                            echo "=== Debug: Validating token against SonarQube ==="
+                            curl -s -u $SONAR_AUTH_TOKEN: ${SONAR_URL}/api/authentication/validate
+                            echo ""
+
+                            echo "=== Running SonarQube analysis ==="
                             mvn org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar \
                               -Dsonar.token=$SONAR_AUTH_TOKEN \
                               -Dsonar.host.url=${SONAR_URL}
@@ -76,7 +76,6 @@ spec:
                 }
             }
         }
-
         stage('Docker Build and Push') {
             steps {
                 container('docker') {
@@ -94,39 +93,31 @@ spec:
                 }
             }
         }
-
         stage('Verify K8s Connection') {
             steps {
                 container('kubectl') {
                     sh '''
                     echo "Checking Kubernetes connection..."
                     kubectl cluster-info
-
                     echo "Checking nodes..."
                     kubectl get nodes
-
                     echo "Checking application deployment..."
                     kubectl get deployment spring-boot-app -n default
                     '''
                 }
             }
         }
-
         stage('Deploy to K8s') {
             steps {
                 container('kubectl') {
                     sh """
                     echo "Updating Kubernetes deployment..."
-
                     kubectl set image deployment/spring-boot-app \\
                     spring-boot-app=mansour19/my-app:${env.BUILD_NUMBER} \\
                     -n default
-
                     echo "Waiting for rollout..."
-
                     kubectl rollout status deployment/spring-boot-app \\
                     -n default
-
                     echo "Deployment completed successfully"
                     """
                 }
