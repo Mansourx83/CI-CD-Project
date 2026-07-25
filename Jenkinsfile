@@ -23,9 +23,17 @@ spec:
       mountPath: /var/run/docker.sock
   - name: syft
     image: anchore/syft:latest
+    command:
+    - tail
+    - -f
+    - /dev/null
     tty: true
   - name: grype
     image: anchore/grype:latest
+    command:
+    - tail
+    - -f
+    - /dev/null
     tty: true
   - name: kubectl
     image: alpine:3.20
