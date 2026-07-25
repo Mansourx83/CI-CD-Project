@@ -21,6 +21,16 @@ spec:
     volumeMounts:
     - name: docker-sock
       mountPath: /var/run/docker.sock
+  - name: syft
+    image: anchore/syft:latest
+    command:
+    - cat
+    tty: true
+  - name: grype
+    image: anchore/grype:latest
+    command:
+    - cat
+    tty: true
   - name: kubectl
     image: alpine:3.20
     command:
@@ -90,6 +100,31 @@ spec:
                             }
                         }
                     }
+                }
+            }
+        }
+        stage('Security Scan (Syft & Grype)') {
+            steps {
+                script {
+                    def imageName = "mansour19/my-app:${env.BUILD_NUMBER}"
+                    
+                    container('syft') {
+                        echo "=== Generating visual table for console ==="
+                        sh "syft ${imageName} -o table"
+                        
+                        echo "=== Exporting SBOM artifact file ==="
+                        sh "syft ${imageName} -o spdx-json=sbom-report.json"
+                    }
+                    
+                    container('grype') {
+                        echo "=== Scanning image for vulnerabilities with Grype ==="
+                        sh "grype sbom:sbom-report.json --fail-on high"
+                    }
+                }
+            }
+            post {
+                success {
+                    archiveArtifacts artifacts: 'spring-boot-app/sbom-report.json', fingerprint: true
                 }
             }
         }
