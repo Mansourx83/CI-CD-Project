@@ -21,19 +21,16 @@ spec:
     volumeMounts:
     - name: docker-sock
       mountPath: /var/run/docker.sock
-  - name: syft
-    image: anchore/syft:latest
+  - name: syft-grype
+    image: alpine:3.20
     command:
-    - tail
-    - -f
-    - /dev/null
-    tty: true
-  - name: grype
-    image: anchore/grype:latest
-    command:
-    - tail
-    - -f
-    - /dev/null
+    - /bin/sh
+    - -c
+    - |
+      apk add --no-cache curl
+      curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+      curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+      while true; do sleep 30; done
     tty: true
   - name: kubectl
     image: alpine:3.20
@@ -112,15 +109,13 @@ spec:
                 script {
                     def imageName = "mansour19/my-app:${env.BUILD_NUMBER}"
                     
-                    container('syft') {
+                    container('syft-grype') {
                         echo "=== Generating visual table for console ==="
                         sh "syft ${imageName} -o table"
                         
                         echo "=== Exporting SBOM artifact file ==="
                         sh "syft ${imageName} -o spdx-json=sbom-report.json"
-                    }
-                    
-                    container('grype') {
+                        
                         echo "=== Scanning image for vulnerabilities with Grype ==="
                         sh "grype sbom:sbom-report.json --fail-on high"
                     }
