@@ -24,12 +24,14 @@ spec:
   - name: syft
     image: anchore/syft:latest
     command:
-    - cat
+    - sleep
+    - "999999"
     tty: true
   - name: grype
     image: anchore/grype:latest
     command:
-    - cat
+    - sleep
+    - "999999"
     tty: true
   - name: kubectl
     image: alpine:3.20
