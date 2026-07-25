@@ -124,7 +124,7 @@ spec:
             }
             post {
                 success {
-                    archiveArtifacts artifacts: 'spring-boot-app/sbom-report.json', fingerprint: true
+                    archiveArtifacts artifacts: 'sbom-report.json', fingerprint: true
                 }
             }
         }
