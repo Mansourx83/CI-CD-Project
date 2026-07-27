@@ -24,6 +24,20 @@
         <java.version>11</java.version>
     </properties>
 
+    <!-- إضافة توزيع النكسيس هنا -->
+    <distributionManagement>
+        <repository>
+            <id>nexus-releases</id>
+            <name>Nexus Release Repository</name>
+            <url>http://nexus-nexus-repository-manager.nexus.svc.cluster.local:8081/repository/maven-releases/</url>
+        </repository>
+        <snapshotRepository>
+            <id>nexus-snapshots</id>
+            <name>Nexus Snapshot Repository</name>
+            <url>http://nexus-nexus-repository-manager.nexus.svc.cluster.local:8081/repository/maven-snapshots/</url>
+        </snapshotRepository>
+    </distributionManagement>
+
     <dependencies>
 
         <dependency>
@@ -70,6 +84,5 @@
 
         </plugins>
     </build>
-
 
 </project>
