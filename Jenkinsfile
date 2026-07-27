@@ -64,19 +64,28 @@ spec:
                 }
             }
         }
+        stage('Publish to Nexus') {
+            steps {
+                container('maven') {
+                    dir('spring-boot-app') {
+                        withCredentials([usernamePassword(credentialsId: 'nexus-cred', passwordVariable: 'NEXUS_PASSWORD', usernameVariable: 'NEXUS_USER')]) {
+                            sh '''
+                            echo "Publishing artifacts to Nexus..."
+                            mvn deploy -DskipTests \
+                              -DaltDeploymentRepository=nexus-releases::default::http://nexus-nexus-repository-manager.nexus.svc.cluster.local:8081/repository/maven-releases/ \
+                              -Dusername=${NEXUS_USER} -Dpassword=${NEXUS_PASSWORD}
+                            '''
+                        }
+                    }
+                }
+            }
+        }
         stage('Static Code Analysis (SonarQube)') {
             steps {
                 container('maven') {
                     dir('spring-boot-app') {
                         withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_AUTH_TOKEN')]) {
                             sh '''
-                            echo "=== Debug: Checking token ==="
-                            echo "Token length: ${#SONAR_AUTH_TOKEN}"
-
-                            echo "=== Debug: Validating token against SonarQube ==="
-                            curl -s -u $SONAR_AUTH_TOKEN: ${SONAR_URL}/api/authentication/validate
-                            echo ""
-
                             echo "=== Running SonarQube analysis ==="
                             mvn org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.1.2184:sonar \
                               -Dsonar.token=$SONAR_AUTH_TOKEN \
@@ -117,28 +126,13 @@ spec:
                         sh "syft ${imageName} -o spdx-json=sbom-report.json"
                         
                         echo "=== Scanning image for vulnerabilities with Grype ==="
-                        // sh "grype sbom:sbom-report.json --fail-on high"
                         sh "grype sbom:sbom-report.json"
                     }
                 }
             }
             post {
                 success {
-                    archiveArtifacts artifacts: 'sbom-report.json', fingerprint: true
-                }
-            }
-        }
-        stage('Verify K8s Connection') {
-            steps {
-                container('kubectl') {
-                    sh '''
-                    echo "Checking Kubernetes connection..."
-                    kubectl cluster-info
-                    echo "Checking nodes..."
-                    kubectl get nodes
-                    echo "Checking application deployment..."
-                    kubectl get deployment spring-boot-app -n default
-                    '''
+                    archiveArtifacts artifacts: 'spring-boot-app/sbom-report.json', fingerprint: true
                 }
             }
         }
