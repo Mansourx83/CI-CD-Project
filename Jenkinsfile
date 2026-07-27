@@ -28,7 +28,8 @@ spec:
     tty: true
   - name: syft-grype
     image: anchore/syft:latest
-    command: ['cat']
+    command: ['sleep']
+    args: ['infinity']
     tty: true
   volumes:
   - name: docker-sock
