@@ -86,7 +86,25 @@ spec:
                 container('maven') {
                     dir('spring-boot-app') {
                         withCredentials([usernamePassword(credentialsId: 'nexus-cred', passwordVariable: 'NEXUS_PASSWORD', usernameVariable: 'NEXUS_USER')]) {
-                            sh 'mvn clean deploy -DskipTests'
+                            sh '''
+                                cat > nexus-settings.xml <<EOF
+<settings>
+  <servers>
+    <server>
+      <id>nexus-releases</id>
+      <username>${NEXUS_USER}</username>
+      <password>${NEXUS_PASSWORD}</password>
+    </server>
+    <server>
+      <id>nexus-snapshots</id>
+      <username>${NEXUS_USER}</username>
+      <password>${NEXUS_PASSWORD}</password>
+    </server>
+  </servers>
+</settings>
+EOF
+                                mvn -s nexus-settings.xml clean deploy -DskipTests
+                            '''
                         }
                     }
                 }
