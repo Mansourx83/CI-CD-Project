@@ -84,8 +84,10 @@ spec:
         stage('Build and Deploy to Nexus') {
             steps {
                 container('maven') {
-                    withCredentials([usernamePassword(credentialsId: 'nexus-cred', passwordVariable: 'NEXUS_PASSWORD', usernameVariable: 'NEXUS_USER')]) {
-                        sh 'mvn clean deploy -DskipTests'
+                    dir('spring-boot-app') {
+                        withCredentials([usernamePassword(credentialsId: 'nexus-cred', passwordVariable: 'NEXUS_PASSWORD', usernameVariable: 'NEXUS_USER')]) {
+                            sh 'mvn clean deploy -DskipTests'
+                        }
                     }
                 }
             }
@@ -94,13 +96,15 @@ spec:
         stage('Static Code Analysis (SonarQube)') {
             steps {
                 container('maven') {
-                    withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
-                        sh """
-                            mvn sonar:sonar \
-                              -Dsonar.projectKey=spring-boot-demo \
-                              -Dsonar.host.url=${SONAR_HOST} \
-                              -Dsonar.login=\$SONAR_TOKEN
-                        """
+                    dir('spring-boot-app') {
+                        withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                            sh """
+                                mvn sonar:sonar \
+                                  -Dsonar.projectKey=spring-boot-demo \
+                                  -Dsonar.host.url=${SONAR_HOST} \
+                                  -Dsonar.login=\$SONAR_TOKEN
+                            """
+                        }
                     }
                 }
             }
@@ -131,8 +135,8 @@ spec:
 }
 EOF
                             /kaniko/executor \
-                              --context "$(pwd)" \
-                              --dockerfile "$(pwd)/Dockerfile" \
+                              --context "$(pwd)/spring-boot-app" \
+                              --dockerfile "$(pwd)/spring-boot-app/Dockerfile" \
                               --destination "${IMAGE_NAME}:${IMAGE_TAG}" \
                               --destination "${IMAGE_NAME}:latest" \
                               --cache=true
@@ -186,10 +190,10 @@ EOF
             archiveArtifacts artifacts: 'sbom.json, grype-report.json', allowEmptyArchive: true
         }
         success {
-            echo " Pipeline success: ${IMAGE_NAME}:${IMAGE_TAG}"
+            echo "Pipeline succeeded: ${IMAGE_NAME}:${IMAGE_TAG}"
         }
         failure {
-            echo "Pipeline failure — check the logs above."
+            echo "Pipeline failed — check the logs above."
         }
     }
 }
