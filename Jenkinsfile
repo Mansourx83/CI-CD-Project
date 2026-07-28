@@ -195,7 +195,7 @@ EOF
                     sh '''
                         kubectl set image deployment/spring-boot-demo \
                           spring-boot-demo="${IMAGE_NAME}:${IMAGE_TAG}" \
-                          -n jenkins --record || \
+                          -n jenkins || \
                         kubectl apply -f spring-boot-app-manifests/ -n jenkins
                     '''
                 }
