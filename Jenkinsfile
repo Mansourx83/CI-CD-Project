@@ -28,7 +28,8 @@ spec:
 
   - name: kubectl
     image: bitnami/kubectl:latest
-    command: ['cat']
+    command: ['sleep']
+    args: ['infinity']
     tty: true
 
   - name: syft-grype
@@ -128,15 +129,6 @@ EOF
             }
         }
 
-        // Quality Gate متعطلة مؤقتًا (webhook SonarQube مش مظبوط دلوقتي)
-        // stage('Quality Gate') {
-        //     steps {
-        //         timeout(time: 5, unit: 'MINUTES') {
-        //             waitForQualityGate abortPipeline: true
-        //         }
-        //     }
-        // }
-
         stage('Build & Push Image (Kaniko)') {
             steps {
                 container('kaniko') {
@@ -176,14 +168,19 @@ EOF
                         curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
                           | sh -s -- -b /usr/local/bin
 
-                        syft "${IMAGE_NAME}:${IMAGE_TAG}" -o json > sbom.json
+                        syft "${IMAGE_NAME}:${IMAGE_TAG}" \
+                          --scope all-layers \
+                          -o json > sbom.json
+
+                        echo "===== Syft SBOM ====="
+                        syft "${IMAGE_NAME}:${IMAGE_TAG}" \
+                          --scope all-layers \
+                          -o table
+
                         grype "${IMAGE_NAME}:${IMAGE_TAG}" -o json > grype-report.json
 
                         echo "===== Grype Summary ====="
                         grype "${IMAGE_NAME}:${IMAGE_TAG}" -o table
-
-                        # يفشل الـ build لو فيه ثغرات Critical (متعطل دلوقتي - شيل الكومنت لما تحب تفعّله)
-                        # grype "${IMAGE_NAME}:${IMAGE_TAG}" --fail-on critical
                     '''
                 }
             }
@@ -193,10 +190,20 @@ EOF
             steps {
                 container('kubectl') {
                     sh '''
-                        kubectl set image deployment/spring-boot-demo \
-                          spring-boot-demo="${IMAGE_NAME}:${IMAGE_TAG}" \
-                          -n jenkins || \
-                        kubectl apply -f spring-boot-app-manifests/ -n jenkins
+                        echo "Checking current deployment..."
+                        if kubectl get deployment spring-boot-demo -n jenkins > /dev/null 2>&1; then
+                            echo "Deployment exists, updating image..."
+                            kubectl set image deployment/spring-boot-demo \
+                              spring-boot-demo="${IMAGE_NAME}:${IMAGE_TAG}" \
+                              -n jenkins
+                            kubectl rollout status deployment/spring-boot-demo \
+                              -n jenkins --timeout=120s
+                        else
+                            echo "Deployment not found, applying manifests..."
+                            kubectl apply -f spring-boot-app-manifests/ -n jenkins
+                            kubectl rollout status deployment/spring-boot-demo \
+                              -n jenkins --timeout=120s
+                        fi
                     '''
                 }
             }
