@@ -195,14 +195,14 @@ EOF
                         echo "Namespace: jenkins"
                         echo "======================================"
 
-                        if kubectl get deployment spring-boot-demo -n jenkins > /dev/null 2>&1; then
+                        if kubectl get deployment spring-boot-app -n jenkins > /dev/null 2>&1; then
                             echo "Deployment EXISTS — Updating image..."
-                            kubectl set image deployment/spring-boot-demo \
-                              spring-boot-demo="${IMAGE_NAME}:${IMAGE_TAG}" \
+                            kubectl set image deployment/spring-boot-app \
+                              spring-boot-app="${IMAGE_NAME}:${IMAGE_TAG}" \
                               -n jenkins
 
                             echo "Waiting for rollout to complete..."
-                            kubectl rollout status deployment/spring-boot-demo \
+                            kubectl rollout status deployment/spring-boot-app \
                               -n jenkins --timeout=120s
 
                             echo "======================================"
@@ -211,10 +211,11 @@ EOF
                             echo "======================================"
                         else
                             echo "Deployment NOT FOUND — Applying manifests..."
-                            kubectl apply -f spring-boot-app-manifests/ -n jenkins
+                            kubectl apply -f spring-boot-app-manifests/deployment.yaml -n jenkins
+                            kubectl apply -f spring-boot-app-manifests/service.yaml -n jenkins
 
                             echo "Waiting for rollout to complete..."
-                            kubectl rollout status deployment/spring-boot-demo \
+                            kubectl rollout status deployment/spring-boot-app \
                               -n jenkins --timeout=120s
 
                             echo "======================================"
@@ -224,7 +225,7 @@ EOF
                         fi
 
                         echo "--- Current Deployment Status ---"
-                        kubectl get deployment spring-boot-demo -n jenkins
+                        kubectl get deployment spring-boot-app -n jenkins
                         kubectl get pods -n jenkins -l app=spring-boot-demo
                     '''
                 }
