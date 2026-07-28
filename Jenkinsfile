@@ -51,7 +51,6 @@ spec:
     }
 
     options {
-        timestamps()
         disableConcurrentBuilds()
         buildDiscarder(logRotator(numToKeepStr: '20'))
     }
@@ -190,7 +189,7 @@ EOF
             echo " Pipeline success: ${IMAGE_NAME}:${IMAGE_TAG}"
         }
         failure {
-            echo " Pipeline failure — check the logs above."
+            echo "Pipeline failure — check the logs above."
         }
     }
 }
