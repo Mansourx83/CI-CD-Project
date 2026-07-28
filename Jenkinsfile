@@ -27,9 +27,8 @@ spec:
       mountPath: /kaniko/.docker
 
   - name: kubectl
-    image: bitnami/kubectl:latest
-    command: ['sleep']
-    args: ['infinity']
+    image: alpine/k8s:1.29.2
+    command: ['sh', '-c', 'while true; do sleep 30; done']
     tty: true
 
   - name: syft-grype
@@ -190,20 +189,43 @@ EOF
             steps {
                 container('kubectl') {
                     sh '''
-                        echo "Checking current deployment..."
+                        echo "======================================"
+                        echo "Starting Deployment..."
+                        echo "Image: ${IMAGE_NAME}:${IMAGE_TAG}"
+                        echo "Namespace: jenkins"
+                        echo "======================================"
+
                         if kubectl get deployment spring-boot-demo -n jenkins > /dev/null 2>&1; then
-                            echo "Deployment exists, updating image..."
+                            echo "Deployment EXISTS — Updating image..."
                             kubectl set image deployment/spring-boot-demo \
                               spring-boot-demo="${IMAGE_NAME}:${IMAGE_TAG}" \
                               -n jenkins
+
+                            echo "Waiting for rollout to complete..."
                             kubectl rollout status deployment/spring-boot-demo \
                               -n jenkins --timeout=120s
+
+                            echo "======================================"
+                            echo "Successfully updated deployment!"
+                            echo "Image deployed: ${IMAGE_NAME}:${IMAGE_TAG}"
+                            echo "======================================"
                         else
-                            echo "Deployment not found, applying manifests..."
+                            echo "Deployment NOT FOUND — Applying manifests..."
                             kubectl apply -f spring-boot-app-manifests/ -n jenkins
+
+                            echo "Waiting for rollout to complete..."
                             kubectl rollout status deployment/spring-boot-demo \
                               -n jenkins --timeout=120s
+
+                            echo "======================================"
+                            echo "Successfully created deployment!"
+                            echo "Image deployed: ${IMAGE_NAME}:${IMAGE_TAG}"
+                            echo "======================================"
                         fi
+
+                        echo "--- Current Deployment Status ---"
+                        kubectl get deployment spring-boot-demo -n jenkins
+                        kubectl get pods -n jenkins -l app=spring-boot-demo
                     '''
                 }
             }
