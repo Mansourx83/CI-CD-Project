@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: spring-boot-app
+  namespace: jenkins
   labels:
     app: spring-boot-app
 spec:
@@ -16,6 +17,6 @@ spec:
     spec:
       containers:
       - name: spring-boot-app
-        image: mansour19/my-app:latest
+        image: mansour19/spring-boot-demo:latest
         ports:
         - containerPort: 8080
