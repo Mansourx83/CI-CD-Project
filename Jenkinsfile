@@ -48,6 +48,7 @@ spec:
         IMAGE_TAG   = "${env.BUILD_NUMBER}"
         SONAR_HOST  = 'http://sonarqube-sonarqube.sonarqube.svc.cluster.local:9000'
         NEXUS_URL   = 'http://nexus-nexus-repository-manager.nexus.svc.cluster.local:8081'
+        APP_URL     = 'http://spring-boot-app-service.jenkins.svc.cluster.local:80'
     }
 
     options {
@@ -63,24 +64,26 @@ spec:
             }
         }
 
-        stage('Verify Nexus Credentials') {
+        // فحص جودة/أمان الكود الأول، قبل ما نطبع أي artifact أو image
+        stage('Static Code Analysis (SonarQube)') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'nexus-cred', passwordVariable: 'NEXUS_PASSWORD', usernameVariable: 'NEXUS_USER')]) {
-                    sh '''
-                        echo "Testing connection to Nexus..."
-                        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -u "$NEXUS_USER:$NEXUS_PASSWORD" "$NEXUS_URL/service/rest/v1/status")
-                        echo "Nexus Status Code: $HTTP_STATUS"
-                        if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 400 ] || [ "$HTTP_STATUS" -eq 404 ]; then
-                            echo "Authentication Successful! Credentials are valid."
-                        else
-                            echo "Authentication Failed or Nexus is unreachable. Status code: $HTTP_STATUS"
-                            exit 1
-                        fi
-                    '''
+                container('maven') {
+                    dir('spring-boot-app') {
+                        withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                            sh """
+                                mvn sonar:sonar \
+                                  -Dsonar.projectKey=spring-boot-demo \
+                                  -Dsonar.host.url=${SONAR_HOST} \
+                                  -Dsonar.login=\$SONAR_TOKEN
+                            """
+                        }
+                    }
                 }
             }
         }
 
+        // بعد ما نتأكد الكود نضيف، ننشر الـ artifact على Nexus
+        // (لو الـ credentials غلط هتفشل هنا مباشرة، مفيش داعي لـ stage تحقق منفصلة)
         stage('Build and Deploy to Nexus') {
             steps {
                 container('maven') {
@@ -111,23 +114,7 @@ EOF
             }
         }
 
-        stage('Static Code Analysis (SonarQube)') {
-            steps {
-                container('maven') {
-                    dir('spring-boot-app') {
-                        withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
-                            sh """
-                                mvn sonar:sonar \
-                                  -Dsonar.projectKey=spring-boot-demo \
-                                  -Dsonar.host.url=${SONAR_HOST} \
-                                  -Dsonar.login=\$SONAR_TOKEN
-                            """
-                        }
-                    }
-                }
-            }
-        }
-
+        // نبني الـ Docker image بعد ما الـ artifact جاهز
         stage('Build & Push Image (Kaniko)') {
             steps {
                 container('kaniko') {
@@ -155,6 +142,7 @@ EOF
             }
         }
 
+        // نفحص الـ image نفسه بعد ما اتبني مباشرة
         stage('Security Scan (Syft & Grype)') {
             steps {
                 container('syft-grype') {
@@ -185,6 +173,7 @@ EOF
             }
         }
 
+        // ننشر التطبيق على الكلاستر
         stage('Deploy to K8s') {
             steps {
                 container('kubectl') {
@@ -227,6 +216,24 @@ EOF
                         echo "--- Current Deployment Status ---"
                         kubectl get deployment spring-boot-app -n jenkins
                         kubectl get pods -n jenkins -l app=spring-boot-demo
+                    '''
+                }
+            }
+        }
+
+        // آخر خطوة: نفحص التطبيق نفسه وهو شغال فعليًا على الكلاستر
+        stage('DAST Scan (OWASP ZAP)') {
+            steps {
+                container('kubectl') {
+                    sh '''
+                        echo "Running OWASP ZAP baseline scan against ${APP_URL} ..."
+                        kubectl run zap-scan-${BUILD_NUMBER} --rm -i --restart=Never \
+                          --image=ghcr.io/zaproxy/zaproxy:stable \
+                          --namespace=jenkins \
+                          -- zap-baseline.py \
+                          -t ${APP_URL} \
+                          -r zap-report.html || true
+                        echo "ZAP scan finished (findings, if any, do not fail the build)."
                     '''
                 }
             }
