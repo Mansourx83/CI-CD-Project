@@ -64,6 +64,7 @@ spec:
             }
         }
 
+        // Check code quality/security first, before building any artifact or image
         stage('Static Code Analysis (SonarQube)') {
             steps {
                 container('maven') {
@@ -81,7 +82,8 @@ spec:
             }
         }
 
-
+        // Once the code passes quality checks, publish the artifact to Nexus
+        // (if the credentials are wrong, this stage fails directly — no need for a separate check)
         stage('Build and Deploy to Nexus') {
             steps {
                 container('maven') {
@@ -112,6 +114,7 @@ EOF
             }
         }
 
+        // Build the Docker image now that the artifact is ready
         stage('Build & Push Image (Kaniko)') {
             steps {
                 container('kaniko') {
@@ -139,6 +142,7 @@ EOF
             }
         }
 
+        // Scan the image itself right after it's built
         stage('Security Scan (Syft & Grype)') {
             steps {
                 container('syft-grype') {
@@ -169,6 +173,7 @@ EOF
             }
         }
 
+        // Deploy the application to the cluster
         stage('Deploy to K8s') {
             steps {
                 container('kubectl') {
@@ -216,17 +221,43 @@ EOF
             }
         }
 
+        // Final step: scan the application itself while it's actually running in the cluster
         stage('DAST Scan (OWASP ZAP)') {
             steps {
                 container('kubectl') {
                     sh '''
                         echo "Running OWASP ZAP baseline scan against ${APP_URL} ..."
-                        kubectl run zap-scan-${BUILD_NUMBER} --rm -i --restart=Never \
+
+                        # Remove any leftover pod with the same name from a previous attempt
+                        kubectl delete pod zap-scan-${BUILD_NUMBER} -n jenkins --ignore-not-found=true
+
+                        # Run without --rm/-i so the command doesn't wait with a short built-in timeout
+                        kubectl run zap-scan-${BUILD_NUMBER} \
                           --image=ghcr.io/zaproxy/zaproxy:stable \
                           --namespace=jenkins \
-                          -- zap-baseline.py \
-                          -t ${APP_URL} \
-                          -r zap-report.html || true
+                          --restart=Never \
+                          --command -- zap-baseline.py -t ${APP_URL} -r zap-report.html
+
+                        echo "Waiting for ZAP scan pod to finish (up to 5 minutes)..."
+
+                        # Poll until the pod reaches a final state (not just Running)
+                        for i in $(seq 1 30); do
+                          PHASE=$(kubectl get pod zap-scan-${BUILD_NUMBER} -n jenkins -o jsonpath='{.status.phase}')
+                          echo "Pod phase: $PHASE"
+                          if [ "$PHASE" = "Succeeded" ] || [ "$PHASE" = "Failed" ]; then
+                            break
+                          fi
+                          sleep 10
+                        done
+
+                        echo "===== ZAP scan output ====="
+                        kubectl logs zap-scan-${BUILD_NUMBER} -n jenkins || true
+
+                        echo "Copying ZAP report out of the pod..."
+                        kubectl cp jenkins/zap-scan-${BUILD_NUMBER}:zap-report.html ./zap-report.html || true
+
+                        kubectl delete pod zap-scan-${BUILD_NUMBER} -n jenkins --ignore-not-found=true
+
                         echo "ZAP scan finished (findings, if any, do not fail the build)."
                     '''
                 }
@@ -236,7 +267,7 @@ EOF
 
     post {
         always {
-            archiveArtifacts artifacts: 'sbom.json, grype-report.json', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'sbom.json, grype-report.json, zap-report.html', allowEmptyArchive: true
         }
         success {
             echo "Pipeline succeeded: ${IMAGE_NAME}:${IMAGE_TAG}"
