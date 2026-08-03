@@ -64,7 +64,6 @@ spec:
             }
         }
 
-        // فحص جودة/أمان الكود الأول، قبل ما نطبع أي artifact أو image
         stage('Static Code Analysis (SonarQube)') {
             steps {
                 container('maven') {
@@ -82,8 +81,7 @@ spec:
             }
         }
 
-        // بعد ما نتأكد الكود نضيف، ننشر الـ artifact على Nexus
-        // (لو الـ credentials غلط هتفشل هنا مباشرة، مفيش داعي لـ stage تحقق منفصلة)
+
         stage('Build and Deploy to Nexus') {
             steps {
                 container('maven') {
@@ -114,7 +112,6 @@ EOF
             }
         }
 
-        // نبني الـ Docker image بعد ما الـ artifact جاهز
         stage('Build & Push Image (Kaniko)') {
             steps {
                 container('kaniko') {
@@ -142,7 +139,6 @@ EOF
             }
         }
 
-        // نفحص الـ image نفسه بعد ما اتبني مباشرة
         stage('Security Scan (Syft & Grype)') {
             steps {
                 container('syft-grype') {
@@ -173,7 +169,6 @@ EOF
             }
         }
 
-        // ننشر التطبيق على الكلاستر
         stage('Deploy to K8s') {
             steps {
                 container('kubectl') {
@@ -221,7 +216,6 @@ EOF
             }
         }
 
-        // آخر خطوة: نفحص التطبيق نفسه وهو شغال فعليًا على الكلاستر
         stage('DAST Scan (OWASP ZAP)') {
             steps {
                 container('kubectl') {
