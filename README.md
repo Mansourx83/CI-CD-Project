@@ -1,27 +1,22 @@
-# 🛠️ Jenkins CI/CD Pipeline for Java Applications using Maven, SonarQube, Helm, Argo CD & Kubernetes
+# 🛠️ Jenkins CI/CD Pipeline for a Spring Boot App — Kubernetes, SonarQube, Nexus, Kaniko, Syft/Grype & OWASP ZAP
 
-**An end-to-end Jenkins pipeline that builds, tests, analyzes, packages, and deploys a Java application to Kubernetes — with GitOps-based promotion to production via Argo CD.**
+**An end-to-end Jenkins pipeline that builds, tests, analyzes, publishes, containerizes, scans, deploys, and security-tests a Spring Boot application on a Kubernetes (Kind) cluster.**
 
 ---
 
 ## 📌 Project Overview
 
-This project automates the complete lifecycle of a Java application, from source code checkout to production deployment, using a modern cloud-native toolchain.
+This project automates the complete lifecycle of a Spring Boot application — from source code checkout to a running, security-scanned deployment on Kubernetes — using a self-hosted, cloud-native toolchain running entirely inside the cluster.
 
 ### What This Delivers
 
 ✅ Automated build with Maven
-✅ Unit testing (JUnit + Mockito)
-✅ Static code analysis (SonarQube)
-✅ Artifact packaging (JAR)
-✅ Test-environment deployment via Helm
-✅ User acceptance testing (Selenium)
-✅ GitOps production promotion via Argo CD
-
-### Application Packaging
-
-- Java application built and packaged into a JAR file using Maven
-- Deployed to Kubernetes using Helm charts, tracked and synced by Argo CD
+✅ Static code analysis & quality gate (SonarQube)
+✅ Artifact publishing to a private repository (Nexus)
+✅ Rootless container image build (Kaniko — no Docker daemon required)
+✅ Software Bill of Materials + vulnerability scanning (Syft & Grype)
+✅ Automated deployment to Kubernetes
+✅ Dynamic Application Security Testing against the live app (OWASP ZAP)
 
 ---
 
@@ -29,36 +24,40 @@ This project automates the complete lifecycle of a Java application, from source
 
 | Component | Technology | Purpose |
 | --- | --- | --- |
-| **Source Control** | Git | Hosts application code and Helm charts |
-| **CI/CD Server** | Jenkins | Orchestrates the pipeline |
+| **Source Control** | Git / GitHub | Hosts application code and the Jenkinsfile |
+| **CI/CD Server** | Jenkins (Kubernetes plugin) | Orchestrates the pipeline using ephemeral per-build pods |
 | **Build Tool** | Maven | Compiles, tests, and packages the application |
-| **Testing** | JUnit + Mockito | Unit testing framework |
 | **Code Quality** | SonarQube | Static analysis and code quality gating |
-| **UAT Framework** | Selenium | User acceptance testing on deployed builds |
-| **Package Manager** | Helm | Templated Kubernetes deployments |
-| **GitOps Engine** | Argo CD | Declarative, Git-driven production promotion |
-| **Orchestration** | Kubernetes | Runtime environment for test and production |
+| **Artifact Repository** | Nexus Repository Manager | Hosts published Maven artifacts |
+| **Image Build** | Kaniko | Builds and pushes container images without a Docker daemon |
+| **Container Registry** | Docker Hub | Stores the built application images |
+| **SBOM & Vulnerability Scanning** | Syft & Grype | Generates a software bill of materials and scans the image for known CVEs |
+| **DAST** | OWASP ZAP | Scans the live, deployed application for runtime security issues |
+| **Orchestration** | Kubernetes (Kind) | Runtime environment for Jenkins, SonarQube, Nexus, and the application |
 
 ---
 
 ## ✅ Prerequisites
 
-- Java application code hosted on a Git repository
-- A running Jenkins server
-- A Kubernetes cluster
-- Helm package manager installed
-- Argo CD installed on the cluster
+- A Kubernetes cluster (this project uses **Kind** running locally)
+- `kubectl` and `helm` installed and configured against the cluster
+- A Spring Boot application repository containing:
+  - `spring-boot-app/` — source code, `pom.xml`, `Dockerfile`
+  - `spring-boot-app-manifests/` — `deployment.yaml`, `service.yaml`
+  - `Jenkinsfile` at the repository root
+- A Docker Hub account (for pushing built images)
 
 ---
 
-## 🔌 Required Jenkins Plugins
+## 🔌 Cluster Components (installed via Helm)
 
-| Plugin | Purpose |
-| --- | --- |
-| **Git Plugin** | Checks out source code from the Git repository |
-| **Maven Integration Plugin** | Builds and packages the Java application |
-| **Pipeline Plugin** | Enables Jenkinsfile-based pipeline definitions |
-| **Kubernetes Continuous Deploy Plugin** | Deploys to Kubernetes/test environments via Helm |
+| Component | Namespace | Notes |
+| --- | --- | --- |
+| **Jenkins** | `jenkins` | Installed via the official Helm chart, using Kubernetes agents (no static build nodes) |
+| **SonarQube** | `sonarqube` | Installed via the SonarQube Helm chart (Community Edition) |
+| **Nexus Repository Manager** | `nexus` | Installed via the Sonatype Helm chart |
+
+> ⚠️ **Startup probes:** SonarQube and Nexus both take several minutes to fully initialize on first boot. Default Helm chart liveness/readiness probe timeouts are too aggressive for this and will cause repeated pod restarts before the app is ready. Increase `initialDelaySeconds`, `timeoutSeconds`, and `failureThreshold` in the Helm values for both charts (see `helm-values/`).
 
 ---
 
@@ -66,102 +65,120 @@ This project automates the complete lifecycle of a Java application, from source
 
 ### Complete Pipeline Flow
 
-#### **Stage 1: Checkout Source Code**
-- Uses the **Git plugin** to pull the latest code from the configured repository.
+#### **Stage 1: Checkout Code**
+Pulls the latest source from the configured Git repository (`checkout scm`).
 
-#### **Stage 2: Build the Application**
-- Uses the **Maven Integration plugin** to compile the Java application.
+#### **Stage 2: Static Code Analysis (SonarQube)**
+Runs `mvn sonar:sonar` against the in-cluster SonarQube instance, authenticated via a Jenkins-stored token. Runs **before** publishing or building an image, so bad code never gets packaged.
 
-#### **Stage 3: Run Unit Tests**
-- Executes unit tests using **JUnit** and **Mockito**.
-- Fails the pipeline early if tests do not pass.
+#### **Stage 3: Build and Deploy to Nexus**
+Publishes the Maven artifact to the in-cluster Nexus repository using a generated `settings.xml` with Nexus credentials.
 
-#### **Stage 4: Static Code Analysis (SonarQube)**
-- Runs a SonarQube scan to evaluate code quality, bugs, code smells, and vulnerabilities.
-- Uses the **SonarQube plugin** integrated with Jenkins.
+#### **Stage 4: Build & Push Image (Kaniko)**
+Builds the application's Docker image using Kaniko (no Docker daemon needed inside the Jenkins agent pod) and pushes it to Docker Hub, tagged with both the Jenkins build number and `latest`.
 
-#### **Stage 5: Package the Application**
-- Packages the compiled code into a deployable **JAR** file using Maven.
+#### **Stage 5: Security Scan (Syft & Grype)**
+- **Syft** generates a full SBOM (`sbom.json`) for the built image.
+- **Grype** scans the same image for known CVEs and prints a summary table.
+- Both reports are archived as Jenkins build artifacts.
 
-#### **Stage 6: Deploy to Test Environment (Helm)**
-- Uses the **Kubernetes Continuous Deploy plugin** to deploy the packaged application to a test environment using a Helm chart.
+#### **Stage 6: Deploy to K8s**
+Applies or updates the Kubernetes Deployment/Service for the application, then waits for the rollout to complete (`kubectl rollout status`).
 
-#### **Stage 7: User Acceptance Testing**
-- Runs automated UAT scripts using **Selenium** against the deployed test environment.
-
-#### **Stage 8: Promote to Production (Argo CD)**
-- Updates the Git repository tracked by Argo CD (Helm values/manifests).
-- Argo CD detects the change and syncs the production environment automatically (GitOps).
+#### **Stage 7: DAST Scan (OWASP ZAP)**
+Runs an OWASP ZAP baseline scan against the **live, deployed** application inside the cluster. The ZAP pod mounts an `emptyDir` volume for its working directory, stays alive briefly after the scan so the HTML report can be copied out via `kubectl cp`, and is then cleaned up. Findings do not fail the build — they are reported for review, not enforced as a hard gate (for now).
 
 ---
 
 ## 🚀 Setup Guide
 
-### 1. Install Jenkins Plugins
-Install the plugins listed in the [Required Jenkins Plugins](#-required-jenkins-plugins) table via **Manage Jenkins → Plugins**.
+### 1. Create Namespaces
 
-### 2. Create the Jenkins Pipeline
-- Create a new **Pipeline** job in Jenkins.
-- Configure it with the Git repository URL of the Java application.
-- Add a `Jenkinsfile` to the repository root defining the stages above.
+```bash
+kubectl create namespace jenkins
+kubectl create namespace sonarqube
+kubectl create namespace nexus
+```
 
-### 3. Configure Pipeline Stages
-| Stage | Tooling Used |
-| --- | --- |
-| Checkout | Git plugin |
-| Build | Maven Integration plugin |
-| Unit Tests | JUnit + Mockito |
-| Code Quality | SonarQube plugin |
-| Packaging | Maven Integration plugin |
-| Test Deploy | Kubernetes Continuous Deploy plugin + Helm |
-| UAT | Selenium |
-| Production Promotion | Argo CD |
+### 2. Apply Jenkins RBAC
 
-### 4. Set Up Argo CD
-1. Install Argo CD on the Kubernetes cluster.
-2. Create a Git repository (or reuse an existing one) for Argo CD to track — containing the Helm chart and Kubernetes manifests.
-3. Build a Helm chart for the Java application, including:
-   - Kubernetes manifests (Deployment, Service, etc.)
-   - `values.yaml` for environment-specific configuration
-4. Commit the Helm chart to the Argo CD–tracked repository.
-5. Create an Argo CD Application resource pointing to that repository and chart path.
+The Jenkins ServiceAccount needs permissions beyond the Kubernetes plugin defaults — specifically `pods/log` and `pods/exec`, required by the DAST stage's `kubectl logs` and `kubectl cp` calls.
 
-### 5. Integrate Jenkins with Argo CD
-1. Generate an Argo CD API token.
-2. Store the token in **Jenkins Credentials**.
-3. Add a pipeline stage that updates the image tag/values in the Argo CD–tracked Git repo (triggering an automatic sync), or calls the Argo CD API/CLI directly to sync the application.
+```bash
+kubectl apply -f jenkins-rbac.yaml
+```
 
-### 6. Run the Pipeline
-1. Trigger the Jenkins pipeline (manually or via webhook on commit).
-2. Monitor each stage in the Jenkins console output.
-3. Resolve any failures (build errors, failed tests, quality gate failures, deployment issues) before re-running.
+### 3. Install Jenkins, SonarQube, and Nexus
+
+```bash
+helm repo add jenkins https://charts.jenkins.io
+helm repo add sonarqube https://SonarSource.github.io/helm-chart-sonarqube
+helm repo add sonatype https://sonatype.github.io/helm3-charts/
+helm repo update
+
+helm install my-jenkins jenkins/jenkins -n jenkins -f helm-values/jenkins-values.yaml
+helm install sonarqube sonarqube/sonarqube -n sonarqube -f helm-values/sonarqube-values.yaml
+helm install nexus sonatype/nexus-repository-manager -n nexus -f helm-values/nexus-values.yml
+```
+
+### 4. Retrieve Initial Credentials
+
+```bash
+# Jenkins admin password
+kubectl get secret --namespace jenkins my-jenkins \
+  -o jsonpath="{.data.jenkins-admin-password}" | base64 --decode
+
+# Nexus initial admin password
+kubectl exec -it <nexus-pod-name> -n nexus -- cat /nexus-data/admin.password
+```
+
+SonarQube's default login is `admin` / `admin` (you'll be prompted to change it on first login).
+
+### 5. Create Jenkins Credentials
+
+In **Manage Jenkins → Credentials → (global)**, add:
+
+| Credential ID | Type | Used For |
+| --- | --- | --- |
+| `docker-cred` | Username with password | Pushing images from Kaniko to Docker Hub |
+| `nexus-cred` | Username with password | Publishing artifacts to Nexus |
+| `sonarqube-token` | Secret text | Authenticating with SonarQube |
+
+### 6. Create the Multibranch Pipeline Job
+
+- **New Item → Multibranch Pipeline**
+- Add the GitHub repository as a branch source
+- Build configuration: **by Jenkinsfile**, script path `Jenkinsfile` (or the correct path if nested)
+
+### 7. Run the Pipeline
+
+Trigger a build and monitor each stage's console output. On first run, expect the image pulls (Kaniko, Syft/Grype installers, ZAP) to add a few extra minutes versus subsequent runs.
 
 ---
 
 ## 🔐 Jenkins Credentials Required
 
-| Credential ID (suggested) | Type | Used For |
+| Credential ID | Type | Used For |
 | --- | --- | --- |
-| **git-cred** | SSH Key / Username-Password | Git checkout and pushing Helm chart updates |
-| **sonarqube-token** | Secret Text | SonarQube authentication |
-| **kubeconfig-cred** | Kubeconfig / Secret File | Deploying to the test environment via Helm |
-| **argocd-token** | Secret Text | Argo CD API authentication for production promotion |
+| **docker-cred** | Username/Password | Kaniko image push to Docker Hub |
+| **nexus-cred** | Username/Password | Maven artifact publish to Nexus |
+| **sonarqube-token** | Secret Text | SonarQube analysis authentication |
 
 ---
 
-## 📂 Suggested Repository Structure
+## 📂 Repository Structure
 
 ```
-Jenkins-full-project/
-├── src/                     # Java application source code
-├── pom.xml                  # Maven build configuration
-├── Jenkinsfile               # Pipeline definition
-├── helm-chart/
-│   ├── Chart.yaml
-│   ├── values.yaml
-│   └── templates/
-│       ├── deployment.yaml
-│       └── service.yaml
+<repo-root>/
+├── spring-boot-app/
+│   ├── src/main
+│   ├── Dockerfile
+│   ├── pom.xml
+│   └── README.md
+├── spring-boot-app-manifests/
+│   ├── deployment.yaml
+│   └── service.yaml
+├── Jenkinsfile
 └── README.md
 ```
 
@@ -173,42 +190,43 @@ Jenkins-full-project/
 Git Push
    │
    ▼
-[Checkout] → [Maven Build] → [Unit Tests] → [SonarQube Analysis]
+[Checkout] → [SonarQube Analysis] → [Publish to Nexus]
    │
    ▼
-[Package JAR]
+[Build & Push Image — Kaniko] → [SBOM + CVE Scan — Syft/Grype]
    │
    ▼
-[Deploy to Test via Helm] → [Selenium UAT]
-   │
-   ▼
-[Update Argo CD Git Repo] → [Argo CD Auto-Sync] → [Production Deployment]
+[Deploy to Kubernetes] → [DAST Scan — OWASP ZAP]
 ```
 
 ---
 
-## 🛡️ Best Practices
+## 🛡️ Best Practices Applied
 
-- ✅ Keep quality gates (SonarQube) blocking for critical/blocker issues before packaging.
-- ✅ Use separate Helm `values-test.yaml` and `values-prod.yaml` files for environment-specific configuration.
-- ✅ Never store Argo CD tokens or kubeconfigs in plaintext — always use Jenkins Credentials.
-- ✅ Let Argo CD manage production state exclusively (GitOps) — avoid manual `kubectl apply` to production.
-- ✅ Version JAR artifacts and Helm chart versions together to keep traceability between builds and deployments.
+- ✅ Quality and security checks run **before** anything is published or built (SonarQube first).
+- ✅ No plaintext credentials in the Jenkinsfile — everything goes through Jenkins Credentials.
+- ✅ Rootless image builds via Kaniko instead of mounting a Docker socket.
+- ✅ Every built image gets an SBOM and a CVE scan before deployment.
+- ✅ The live application is scanned post-deployment, not just the static code/image.
+- ✅ SBOM, vulnerability, and DAST reports are archived as Jenkins build artifacts for traceability across builds.
 
 ---
 
-## 🚨 Troubleshooting Tips
+## 🚨 Troubleshooting Notes (from real issues hit while building this)
 
-| Issue | Likely Cause | Fix |
+| Issue | Cause | Fix |
 | --- | --- | --- |
-| SonarQube stage fails with plugin not found | `sonar-maven-plugin` missing from `pom.xml` | Add the plugin under `<build><plugins>` |
-| Helm deploy fails in test environment | Invalid or missing `values.yaml` | Validate chart with `helm lint` and `helm template` |
-| Argo CD not syncing after Git update | Auto-sync disabled or wrong repo path | Verify Argo CD Application config and enable auto-sync |
-| UAT stage cannot reach test environment | Service not exposed or DNS not resolving | Check Kubernetes Service and Ingress configuration |
-| Jenkins fails to authenticate to Argo CD | Expired or invalid API token | Regenerate token and update Jenkins credential |
+| `No plugin found for prefix 'sonar'` | `sonar-maven-plugin` not resolvable by prefix | Use full plugin coordinates: `org.sonarsource.scanner.maven:sonar-maven-plugin:<version>:sonar` |
+| `Not authorized` from SonarQube | Using deprecated `sonar.login` property, or a stale token after a SonarQube reinstall | Use `sonar.token` instead of `sonar.login`; regenerate the token after any SonarQube reinstall |
+| SonarQube / Nexus pods stuck restarting | Default Helm chart probe timeouts too short for slow first-boot (Elasticsearch bootstrap, JVM warm-up) | Increase `initialDelaySeconds`, `timeoutSeconds`, and `failureThreshold` on liveness/readiness/startup probes |
+| Nexus pod stuck `Pending` after reinstall | Old PVC stuck in `Terminating` blocking the new pod | `helm uninstall`, force-delete the namespace, recreate from scratch |
+| `groovy.lang.MissingPropertyException: No such property: docker` | Docker Pipeline plugin not installed in Jenkins | Install the **Docker Pipeline** plugin under Manage Jenkins → Plugins |
+| ZAP stage: `directory '/zap/wrk' is not mounted` | No writable volume provided to the ZAP container for its report output | Mount an `emptyDir` volume at `/zap/wrk` in the ZAP pod spec |
+| `kubectl cp`/`kubectl logs` forbidden for the Jenkins ServiceAccount | RBAC `ClusterRole` missing `pods/log` and `pods/exec` | Add those resources/verbs to `jenkins-rbac.yaml` and reapply |
+| `kubectl cp` fails with "cannot exec into a container in a completed pod" | Pod already reached `Succeeded`/`Failed` before the copy ran | Keep the container alive briefly after the task finishes (e.g. wrap the command with a trailing `sleep`) before copying and then deleting the pod |
 
 ---
 
 ## ✅ Summary
 
-This end-to-end Jenkins pipeline automates the full CI/CD lifecycle for a Java application — from code checkout through build, testing, code quality analysis, and packaging, to test deployment, user acceptance testing, and GitOps-driven production promotion — using **Maven, SonarQube, Helm, Argo CD, and Kubernetes**.
+This pipeline automates the full CI/CD lifecycle for a Spring Boot application — from checkout through static analysis, artifact publishing, rootless image builds, SBOM/vulnerability scanning, Kubernetes deployment, and finally dynamic security testing against the live app — using **Maven, SonarQube, Nexus, Kaniko, Syft, Grype, Kubernetes, and OWASP ZAP**, all running self-hosted inside the cluster.
