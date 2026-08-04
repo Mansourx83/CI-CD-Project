@@ -150,9 +150,102 @@ In **Manage Jenkins → Credentials → (global)**, add:
 - Add the GitHub repository as a branch source
 - Build configuration: **by Jenkinsfile**, script path `Jenkinsfile` (or the correct path if nested)
 
-### 7. Run the Pipeline
+### 7. Configure Nexus as a Maven Proxy (speeds up builds, reduces external dependency)
+
+Instead of Maven hitting Maven Central directly on every build, point it at Nexus so previously-downloaded dependencies are served from a local cache.
+
+1. In Nexus: **⚙️ Settings → Repository → Repositories → Create repository**
+2. Choose **maven2 (proxy)**:
+   - **Name:** `maven-central-proxy`
+   - **Remote storage:** `https://repo1.maven.org/maven2/`
+3. Create a second repository, **maven2 (group)**:
+   - **Name:** `maven-public`
+   - **Member repositories:** add `maven-central-proxy` (and `maven-releases` / `maven-snapshots` if present)
+4. In the Jenkinsfile's Maven stages, mirror all traffic through the group repo via a generated `settings.xml`:
+
+```xml
+<mirror>
+  <id>nexus</id>
+  <mirrorOf>*</mirrorOf>
+  <url>http://nexus-nexus-repository-manager.nexus.svc.cluster.local:8081/repository/maven-public/</url>
+</mirror>
+```
+
+---
+
+### 8. Run the Pipeline
 
 Trigger a build and monitor each stage's console output. On first run, expect the image pulls (Kaniko, Syft/Grype installers, ZAP) to add a few extra minutes versus subsequent runs.
+
+---
+
+## 🔁 Disaster Recovery — Rebuilding From Scratch
+
+Kind clusters (and the tools installed on them) are disposable — a machine restart, an accidental `kind delete cluster`, or a Docker Desktop reset can wipe everything. This section is the exact sequence to get back to a working state, based on real recoveries done while building this project.
+
+### 1. Recreate the cluster (if needed)
+
+```bash
+kind create cluster --config kind-config.yaml
+```
+
+### 2. Recreate namespaces
+
+```bash
+kubectl create namespace jenkins
+kubectl create namespace sonarqube
+kubectl create namespace nexus
+```
+
+### 3. Reapply RBAC (before installing Jenkins)
+
+```bash
+kubectl apply -f jenkins-rbac.yaml
+kubectl create serviceaccount jenkins -n jenkins
+```
+
+### 4. Reinstall Jenkins, SonarQube, and Nexus
+
+```bash
+helm repo add jenkins https://charts.jenkins.io
+helm repo add sonarqube https://SonarSource.github.io/helm-chart-sonarqube
+helm repo add sonatype https://sonatype.github.io/helm3-charts/
+helm repo update
+
+helm install my-jenkins jenkins/jenkins -n jenkins -f helm-values/jenkins-values.yaml
+helm install sonarqube sonarqube/sonarqube -n sonarqube -f helm-values/sonarqube-values.yaml
+helm install nexus sonatype/nexus-repository-manager -n nexus -f helm-values/nexus-values.yml
+```
+
+Watch each one until it reaches `1/1 Running` **without repeated restarts** before moving on — SonarQube and Nexus can both take 5–15 minutes on first boot:
+
+```bash
+kubectl get pods -n jenkins -w
+kubectl get pods -n sonarqube -w
+kubectl get pods -n nexus -w
+```
+
+### 5. Recreate all Jenkins credentials
+
+Everything below was lost on the last full reset and had to be recreated from scratch — **Jenkins Credentials are not preserved unless the Helm release keeps the same PersistentVolume**:
+
+| Credential ID | Type | Source |
+| --- | --- | --- |
+| `docker-cred` | Username with password | Your Docker Hub account |
+| `nexus-cred` | Username with password | Nexus admin (or a scoped deploy user) — get the initial password via `kubectl exec -it <nexus-pod> -n nexus -- cat /nexus-data/admin.password` |
+| `sonarqube-token` | Secret text | Generate a new **User Token** in SonarQube: My Account → Security → Generate Tokens (any token from before a SonarQube reinstall is invalid) |
+
+### 6. Reconfigure the Nexus Maven proxy
+
+Repeat step 7 above (`maven-central-proxy` + `maven-public` group) — this is Nexus-side configuration and does **not** survive a Nexus reinstall.
+
+### 7. Recreate the Multibranch Pipeline job
+
+**New Item → Multibranch Pipeline** → point it at the GitHub repo → Build configuration: by Jenkinsfile.
+
+### 8. Run a build and verify every stage
+
+Watch the console output for all seven stages (Checkout → SonarQube → Nexus → Kaniko → Syft/Grype → Deploy → ZAP). Common first-run-after-recovery issues and their fixes are listed in the Troubleshooting table below — most have already been hit once and solved during this project's setup.
 
 ---
 
