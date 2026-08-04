@@ -32,7 +32,7 @@ spec:
     tty: true
 
   - name: syft-grype
-    image: alpine:3.19
+    image: mansour19/syft-grype:latest
     command: ['cat']
     tty: true
 
@@ -147,14 +147,6 @@ EOF
             steps {
                 container('syft-grype') {
                     sh '''
-                        apk add --no-cache curl bash ca-certificates
-
-                        curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
-                          | sh -s -- -b /usr/local/bin
-
-                        curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
-                          | sh -s -- -b /usr/local/bin
-
                         syft "${IMAGE_NAME}:${IMAGE_TAG}" \
                           --scope all-layers \
                           -o json > sbom.json
@@ -262,12 +254,12 @@ EOF
                         # Poll for the marker file that signals zap-baseline.py has actually completed
                         # (the pod stays Running because of the trailing "sleep 300")
                         for i in $(seq 1 30); do
-                          MARKER=$(kubectl exec zap-scan-${BUILD_NUMBER} -n jenkins -- test -f /zap/wrk/scan-complete && echo yes || echo no)
-                          echo "Scan complete marker present: $MARKER"
-                          if [ "$MARKER" = "yes" ]; then
-                            break
-                          fi
-                          sleep 10
+                            MARKER=$(kubectl exec zap-scan-${BUILD_NUMBER} -n jenkins -- test -f /zap/wrk/scan-complete && echo yes || echo no)
+                            echo "Scan complete marker present: $MARKER"
+                            if [ "$MARKER" = "yes" ]; then
+                                break
+                            fi
+                            sleep 10
                         done
 
                         echo "===== ZAP scan output ====="
