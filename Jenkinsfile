@@ -231,20 +231,40 @@ EOF
                         # Remove any leftover pod with the same name from a previous attempt
                         kubectl delete pod zap-scan-${BUILD_NUMBER} -n jenkins --ignore-not-found=true
 
-                        # Run without --rm/-i so the command doesn't wait with a short built-in timeout
-                        kubectl run zap-scan-${BUILD_NUMBER} \
-                          --image=ghcr.io/zaproxy/zaproxy:stable \
-                          --namespace=jenkins \
-                          --restart=Never \
-                          --command -- zap-baseline.py -t ${APP_URL} -r zap-report.html
+                        # ZAP needs a real mounted working directory (/zap/wrk) to write the report into.
+                        # We also keep the container alive after the scan (via a wrapper shell command)
+                        # so that "kubectl cp" (which uses exec) can still reach it — exec does not work
+                        # once a Never-restart pod has already completed.
+                        cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: zap-scan-${BUILD_NUMBER}
+  namespace: jenkins
+spec:
+  restartPolicy: Never
+  containers:
+  - name: zap
+    image: ghcr.io/zaproxy/zaproxy:stable
+    command: ["/bin/bash", "-c"]
+    args:
+      - "zap-baseline.py -t ${APP_URL} -r zap-report.html; echo DONE > /zap/wrk/scan-complete; sleep 300"
+    volumeMounts:
+    - name: zap-wrk
+      mountPath: /zap/wrk
+  volumes:
+  - name: zap-wrk
+    emptyDir: {}
+EOF
 
-                        echo "Waiting for ZAP scan pod to finish (up to 5 minutes)..."
+                        echo "Waiting for the ZAP scan itself to finish (up to 5 minutes)..."
 
-                        # Poll until the pod reaches a final state (not just Running)
+                        # Poll for the marker file that signals zap-baseline.py has actually completed
+                        # (the pod stays Running because of the trailing "sleep 300")
                         for i in $(seq 1 30); do
-                          PHASE=$(kubectl get pod zap-scan-${BUILD_NUMBER} -n jenkins -o jsonpath='{.status.phase}')
-                          echo "Pod phase: $PHASE"
-                          if [ "$PHASE" = "Succeeded" ] || [ "$PHASE" = "Failed" ]; then
+                          MARKER=$(kubectl exec zap-scan-${BUILD_NUMBER} -n jenkins -- test -f /zap/wrk/scan-complete && echo yes || echo no)
+                          echo "Scan complete marker present: $MARKER"
+                          if [ "$MARKER" = "yes" ]; then
                             break
                           fi
                           sleep 10
@@ -254,7 +274,7 @@ EOF
                         kubectl logs zap-scan-${BUILD_NUMBER} -n jenkins || true
 
                         echo "Copying ZAP report out of the pod..."
-                        kubectl cp jenkins/zap-scan-${BUILD_NUMBER}:zap-report.html ./zap-report.html || true
+                        kubectl cp jenkins/zap-scan-${BUILD_NUMBER}:/zap/wrk/zap-report.html ./zap-report.html -c zap || true
 
                         kubectl delete pod zap-scan-${BUILD_NUMBER} -n jenkins --ignore-not-found=true
 
