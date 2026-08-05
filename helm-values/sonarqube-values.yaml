@@ -1,0 +1,12 @@
+ingress:
+  enabled: false
+service:
+  type: NodePort
+  nodePort: 30090
+persistence:
+  enabled: true
+  storageClass: "standard"
+  size: "2Gi"
+monitoringPasscode: "some-secure-passcode"
+community:
+  enabled: true    

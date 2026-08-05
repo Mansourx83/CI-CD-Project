@@ -1,0 +1,11 @@
+controller:
+  componentName: "jenkins"
+  serviceType: "NodePort"
+  nodePort: 30080
+  serviceAccount:
+    create: true
+    name: "jenkins"
+  persistence:
+    enabled: true
+    storageClass: "local-path"
+    size: "2Gi"
