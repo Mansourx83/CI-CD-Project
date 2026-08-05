@@ -83,7 +83,6 @@ spec:
         }
 
         // Once the code passes quality checks, publish the artifact to Nexus
-        // (if the credentials are wrong, this stage fails directly — no need for a separate check)
         stage('Build and Deploy to Nexus') {
             steps {
                 container('maven') {
@@ -165,50 +164,30 @@ EOF
             }
         }
 
-        // Deploy the application to the cluster
-        stage('Deploy to K8s') {
+        // GitOps Update: Push new image tag to the manifests repository for Argo CD to sync
+        stage('GitOps Update Manifests') {
             steps {
                 container('kubectl') {
-                    sh '''
-                        echo "======================================"
-                        echo "Starting Deployment..."
-                        echo "Image: ${IMAGE_NAME}:${IMAGE_TAG}"
-                        echo "Namespace: jenkins"
-                        echo "======================================"
+                    withCredentials([usernamePassword(credentialsId: 'github-cred', passwordVariable: 'GH_PASSWORD', usernameVariable: 'GH_USER')]) {
+                        sh '''
+                            git config --global user.email "jenkins@ci.local"
+                            git config --global user.name "Jenkins CI"
 
-                        if kubectl get deployment spring-boot-app -n jenkins > /dev/null 2>&1; then
-                            echo "Deployment EXISTS — Updating image..."
-                            kubectl set image deployment/spring-boot-app \
-                              spring-boot-app="${IMAGE_NAME}:${IMAGE_TAG}" \
-                              -n jenkins
+                            # Clone the manifests repository
+                            git clone https://${GH_USER}:${GH_PASSWORD}@github.com/Mansourx83/spring-boot-app-manifests-gitops.git manifests-repo
+                            cd manifests-repo
 
-                            echo "Waiting for rollout to complete..."
-                            kubectl rollout status deployment/spring-boot-app \
-                              -n jenkins --timeout=120s
+                            # Update the image tag in deployment.yaml
+                            sed -i 's|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${IMAGE_TAG}|g' deployment.yaml
 
-                            echo "======================================"
-                            echo "Successfully updated deployment!"
-                            echo "Image deployed: ${IMAGE_NAME}:${IMAGE_TAG}"
-                            echo "======================================"
-                        else
-                            echo "Deployment NOT FOUND — Applying manifests..."
-                            kubectl apply -f spring-boot-app-manifests/deployment.yaml -n jenkins
-                            kubectl apply -f spring-boot-app-manifests/service.yaml -n jenkins
+                            # Commit and push changes
+                            git add deployment.yaml
+                            git commit -m "CI Update: update image tag to ${IMAGE_TAG}"
+                            git push origin main
 
-                            echo "Waiting for rollout to complete..."
-                            kubectl rollout status deployment/spring-boot-app \
-                              -n jenkins --timeout=120s
-
-                            echo "======================================"
-                            echo "Successfully created deployment!"
-                            echo "Image deployed: ${IMAGE_NAME}:${IMAGE_TAG}"
-                            echo "======================================"
-                        fi
-
-                        echo "--- Current Deployment Status ---"
-                        kubectl get deployment spring-boot-app -n jenkins
-                        kubectl get pods -n jenkins -l app=spring-boot-demo
-                    '''
+                            echo "Successfully updated manifests in Git for Argo CD!"
+                        '''
+                    }
                 }
             }
         }
@@ -223,10 +202,6 @@ EOF
                         # Remove any leftover pod with the same name from a previous attempt
                         kubectl delete pod zap-scan-${BUILD_NUMBER} -n jenkins --ignore-not-found=true
 
-                        # ZAP needs a real mounted working directory (/zap/wrk) to write the report into.
-                        # We also keep the container alive after the scan (via a wrapper shell command)
-                        # so that "kubectl cp" (which uses exec) can still reach it — exec does not work
-                        # once a Never-restart pod has already completed.
                         cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Pod
@@ -251,8 +226,6 @@ EOF
 
                         echo "Waiting for the ZAP scan itself to finish (up to 5 minutes)..."
 
-                        # Poll for the marker file that signals zap-baseline.py has actually completed
-                        # (the pod stays Running because of the trailing "sleep 300")
                         for i in $(seq 1 30); do
                             MARKER=$(kubectl exec zap-scan-${BUILD_NUMBER} -n jenkins -- test -f /zap/wrk/scan-complete && echo yes || echo no)
                             echo "Scan complete marker present: $MARKER"
