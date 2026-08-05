@@ -169,24 +169,27 @@ EOF
             steps {
                 container('kubectl') {
                     withCredentials([usernamePassword(credentialsId: 'github-cred', passwordVariable: 'GH_PASSWORD', usernameVariable: 'GH_USER')]) {
-                        sh '''
+                        sh """
                             git config --global user.email "jenkins@ci.local"
                             git config --global user.name "Jenkins CI"
 
                             # Clone the manifests repository
-                            git clone https://${GH_USER}:${GH_PASSWORD}@github.com/Mansourx83/spring-boot-app-manifests-gitops.git manifests-repo
+                            git clone https://\${GH_USER}:\${GH_PASSWORD}@github.com/Mansourx83/spring-boot-app-manifests-gitops.git manifests-repo
                             cd manifests-repo
 
-                            # Update the image tag in deployment.yaml
+                            # Update the image tag in deployment.yaml using double quotes so variables expand
                             sed -i 's|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${IMAGE_TAG}|g' deployment.yaml
 
-                            # Commit and push changes
-                            git add deployment.yaml
-                            git commit -m "CI Update: update image tag to ${IMAGE_TAG}"
-                            git push origin main
-
-                            echo "Successfully updated manifests in Git for Argo CD!"
-                        '''
+                            # Check if there are changes to commit
+                            if git diff --quiet deployment.yaml; then
+                                echo "No changes detected in deployment.yaml"
+                            else
+                                git add deployment.yaml
+                                git commit -m "CI Update: update image tag to ${IMAGE_TAG}"
+                                git push origin main
+                                echo "Successfully updated manifests in Git for Argo CD!"
+                            fi
+                        """
                     }
                 }
             }
