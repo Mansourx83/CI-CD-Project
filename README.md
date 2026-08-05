@@ -1,114 +1,202 @@
-# 🛠️ Jenkins CI/CD Pipeline for a Spring Boot App — Kubernetes, SonarQube, Nexus, Kaniko, Syft/Grype & OWASP ZAP
+# 🛠️ Enterprise CI/CD Pipeline — Jenkins → GitLab CI with GitOps & Observability
 
-**An end-to-end Jenkins pipeline that builds, tests, analyzes, publishes, containerizes, scans, deploys, and security-tests a Spring Boot application on a Kubernetes (Kind) cluster.**
+**A production-grade CI/CD platform that automates the complete lifecycle of a Spring Boot application — from source code to security-scanned production deployment — using Kubernetes, GitOps (Argo CD), container security scanning, and dynamic application testing.**
 
 ---
 
 ## 📌 Project Overview
 
-This project automates the complete lifecycle of a Spring Boot application — from source code checkout to a running, security-scanned deployment on Kubernetes — using a self-hosted, cloud-native toolchain running entirely inside the cluster.
+This project demonstrates an **enterprise-scale CI/CD architecture** with multiple implementations:
+
+- **Phase 1 (Complete):** Jenkins-based CI/CD with Kubernetes agents
+- **Phase 2 (Complete):** GitOps-driven deployment with Argo CD (automatic syncing)
+- **Phase 3 (In Progress):** GitLab CI/CD migration (replaces Jenkins)
+- **Phase 4 (Planned):** Prometheus + Grafana for full observability
+
+### 🔧 Deployment Methods Used
+
+| Method | Components |
+|--------|-----------|
+| **Helm** | Jenkins, SonarQube, Nexus |
+| **Kustomize** | Argo CD, Prometheus + Grafana |
 
 ### What This Delivers
 
-✅ Automated build with Maven
-✅ Static code analysis & quality gate (SonarQube)
-✅ Artifact publishing to a private repository (Nexus)
-✅ Rootless container image build (Kaniko — no Docker daemon required)
-✅ Software Bill of Materials + vulnerability scanning (Syft & Grype)
-✅ Automated deployment to Kubernetes
-✅ Dynamic Application Security Testing against the live app (OWASP ZAP)
+✅ Automated build with Maven (cached via Nexus proxy)
+✅ Static code analysis & quality gates (SonarQube)
+✅ Artifact publishing to private repository (Nexus)
+✅ Rootless container image build (Kaniko — no Docker daemon)
+✅ Software Bill of Materials + CVE scanning (Syft & Grype — pre-installed custom image)
+✅ GitOps-based deployment (Argo CD with automatic sync)
+✅ Dynamic Application Security Testing (OWASP ZAP)
+✅ **Zero-downtime deployments** via Kubernetes rolling updates
+✅ **Disaster recovery procedures** documented and tested
+📋 **Full observability stack (planned)** (Prometheus + Grafana via Kustomize)
 
 ---
 
-## 🏗️ Architecture & Technology Stack
+## 🏗️ Architecture Overview
 
-| Component | Technology | Purpose |
-| --- | --- | --- |
-| **Source Control** | Git / GitHub | Hosts application code and the Jenkinsfile |
-| **CI/CD Server** | Jenkins (Kubernetes plugin) | Orchestrates the pipeline using ephemeral per-build pods |
-| **Build Tool** | Maven | Compiles, tests, and packages the application |
-| **Code Quality** | SonarQube | Static analysis and code quality gating |
-| **Artifact Repository** | Nexus Repository Manager | Hosts published Maven artifacts |
-| **Image Build** | Kaniko | Builds and pushes container images without a Docker daemon |
-| **Container Registry** | Docker Hub | Stores the built application images |
-| **SBOM & Vulnerability Scanning** | Syft & Grype | Generates a software bill of materials and scans the image for known CVEs |
-| **DAST** | OWASP ZAP | Scans the live, deployed application for runtime security issues |
-| **Orchestration** | Kubernetes (Kind) | Runtime environment for Jenkins, SonarQube, Nexus, and the application |
+### Technology Stack
+
+| Layer | Technology | Purpose | Installation Method |
+|-------|-----------|---------|----------------------|
+| **Source Control** | GitHub (+ GitLab mirror) | Hosts code and pipeline definitions | — |
+| **CI Server (Legacy)** | Jenkins + Kubernetes plugin | Orchestrates builds using ephemeral pods | Helm |
+| **CI Server (New)** | GitLab CI | Replaces Jenkins (same pipeline logic) | GitLab Runner (Helm) |
+| **Build Tool** | Maven | Compiles, tests, packages application | — |
+| **Code Quality** | SonarQube | Static analysis & quality gates | Helm |
+| **Artifact Repository** | Nexus Repository Manager | Maven proxy + Docker registry | Helm |
+| **Image Builder** | Kaniko | Rootless Docker builds on Kubernetes | — |
+| **Container Registry** | Docker Hub | Stores built application images | — |
+| **SBOM & Scanning** | Syft & Grype (custom image) | SBOM generation + CVE scanning | — |
+| **DAST** | OWASP ZAP | Runtime security testing | — |
+| **Orchestration** | Kubernetes (Kind) | Runtime for all services | — |
+| **CD/GitOps** | Argo CD (Kustomize) | Automatic cluster synchronization | **Kustomize** |
+| **Observability** | Prometheus + Grafana | Metrics collection & visualization | **Kustomize** |
+
+> **Note:** Jenkins, SonarQube, and Nexus are installed via **Helm charts**. Argo CD and the observability stack (Prometheus + Grafana) are deployed via **Kustomize** — no Helm chart involved for either.
+
+### Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      DEVELOPER WORKFLOW                          │
+└─────────────────────────────────────────────────────────────────┘
+                            │
+                    Git Push to GitHub
+                            │
+           ┌────────────────┴────────────────┐
+           ▼                                 ▼
+      JENKINS (Legacy)              GITLAB CI (New)
+      Kubernetes Agents            GitLab Runners
+           │                                 │
+    ┌──────┴──────────────────────────────────┤
+    ▼                                         ▼
+[Stage: SonarQube Analysis]        [Stage: SonarQube Analysis]
+[Stage: Maven Build → Nexus]       [Stage: Maven Build → Nexus]
+[Stage: Kaniko Image Build]        [Stage: Kaniko Image Build]
+[Stage: Syft/Grype Scan]           [Stage: Syft/Grype Scan]
+[Stage: GitOps Update]             [Stage: GitOps Update]
+      │                                 │
+      └──────────────┬──────────────────┘
+                     ▼
+        Git Push to Manifests Repo
+        (Update deployment.yaml)
+                     │
+    ┌────────────────┴────────────────┐
+    ▼                                 ▼
+  ARGOCD                         ARGOCD
+  (Continuous Sync)              (Continuous Sync)
+    │                                 │
+    └──────────────┬──────────────────┘
+                   ▼
+         KUBERNETES CLUSTER
+    ┌──────────────────────────────┐
+    │  Application Pods Update      │
+    │  (Rolling Deployment)         │
+    │                               │
+    ▼                               ▼
+[OWASP ZAP DAST Scan]       [Prometheus Metrics]
+[Build Artifacts Archive]   [Grafana Dashboards]
+└──────────────────────────────────┘
+```
+
+---
+
+## 🔄 Pipeline Stages (Same Logic for Jenkins & GitLab)
+
+### 1. **Checkout Code**
+Pulls latest source from Git.
+
+### 2. **Static Code Analysis (SonarQube)**
+- Runs `mvn sonar:sonar` with quality gates
+- **Gating:** Blocks pipeline if quality threshold not met
+- Runs **first** to prevent bad code from being packaged
+
+### 3. **Build & Deploy to Nexus**
+- Maven compiles, tests, and publishes artifact to Nexus
+- Nexus Maven proxy caches dependencies (faster subsequent builds)
+
+### 4. **Build & Push Image (Kaniko)**
+- Rootless image build (no Docker daemon needed)
+- Pushes to Docker Hub with build number + `latest` tags
+
+### 5. **Security Scan (Syft & Grype)**
+- **Syft:** Generates SBOM (CycloneDX format)
+- **Grype:** Scans for CVEs with `--fail-on high` threshold
+- Reports archived as build artifacts
+
+### 6. **GitOps Update Manifests**
+- Updates `deployment.yaml` image tag in manifests repository
+- Commits change to trigger Argo CD sync
+- **Separation of concerns:** Jenkins writes Git, Argo CD reads Git (true GitOps)
+
+### 7. **DAST Scan (OWASP ZAP)**
+- Runs baseline scan against **live** application in cluster
+- Findings logged but don't fail build (for now)
+- Report archived for security review
 
 ---
 
 ## ✅ Prerequisites
 
-- A Kubernetes cluster (this project uses **Kind** running locally)
-- `kubectl` and `helm` installed and configured against the cluster
-- A Spring Boot application repository containing:
-  - `spring-boot-app/` — source code, `pom.xml`, `Dockerfile`
-  - `spring-boot-app-manifests/` — `deployment.yaml`, `service.yaml`
-  - `Jenkinsfile` at the repository root
-- A Docker Hub account (for pushing built images)
+### Local Machine
+- Kubernetes cluster: **Kind** (or any K8s cluster)
+- `kubectl`, `helm`, `git` installed
+- 8GB RAM allocated to cluster (minimum for all services)
+- Docker Desktop or equivalent
 
----
+### Source Repositories
+- **Main repo:** `Mansourx83/CI-CD-Project` (GitHub)
+  - `spring-boot-app/` — application source
+  - `.gitlab-ci.yml` — GitLab CI pipeline
+  - `Jenkinsfile` — Jenkins pipeline (legacy)
+  - `syft-grype.Dockerfile` — custom scanning image
+  - `helm-values/` — Helm configurations (Jenkins, SonarQube, Nexus)
+  - `kustomize-manifests/argocd/` — Argo CD setup (Kustomize)
+  - `kustomize-manifests/observability/` — Prometheus + Grafana setup (Kustomize)
+  - `kubernetes-rbac.yaml` — RBAC for application
+  - `jenkins-rbac.yaml` — RBAC for Jenkins (legacy)
 
-## 🔌 Cluster Components (installed via Helm)
+- **GitOps repo:** `Mansourx83/spring-boot-app-manifests-gitops`
+  - `deployment.yaml` — K8s deployment
+  - `service.yaml` — K8s service
+  - `kustomization.yaml` — Kustomize config
 
-| Component | Namespace | Notes |
-| --- | --- | --- |
-| **Jenkins** | `jenkins` | Installed via the official Helm chart, using Kubernetes agents (no static build nodes) |
-| **SonarQube** | `sonarqube` | Installed via the SonarQube Helm chart (Community Edition) |
-| **Nexus Repository Manager** | `nexus` | Installed via the Sonatype Helm chart |
-
-> ⚠️ **Startup probes:** SonarQube and Nexus both take several minutes to fully initialize on first boot. Default Helm chart liveness/readiness probe timeouts are too aggressive for this and will cause repeated pod restarts before the app is ready. Increase `initialDelaySeconds`, `timeoutSeconds`, and `failureThreshold` in the Helm values for both charts (see `helm-values/`).
-
----
-
-## 🔄 Jenkins Pipeline Stages
-
-### Complete Pipeline Flow
-
-#### **Stage 1: Checkout Code**
-Pulls the latest source from the configured Git repository (`checkout scm`).
-
-#### **Stage 2: Static Code Analysis (SonarQube)**
-Runs `mvn sonar:sonar` against the in-cluster SonarQube instance, authenticated via a Jenkins-stored token. Runs **before** publishing or building an image, so bad code never gets packaged.
-
-#### **Stage 3: Build and Deploy to Nexus**
-Publishes the Maven artifact to the in-cluster Nexus repository using a generated `settings.xml` with Nexus credentials.
-
-#### **Stage 4: Build & Push Image (Kaniko)**
-Builds the application's Docker image using Kaniko (no Docker daemon needed inside the Jenkins agent pod) and pushes it to Docker Hub, tagged with both the Jenkins build number and `latest`.
-
-#### **Stage 5: Security Scan (Syft & Grype)**
-- **Syft** generates a full SBOM (`sbom.json`) for the built image.
-- **Grype** scans the same image for known CVEs and prints a summary table.
-- Both reports are archived as Jenkins build artifacts.
-
-#### **Stage 6: Deploy to K8s**
-Applies or updates the Kubernetes Deployment/Service for the application, then waits for the rollout to complete (`kubectl rollout status`).
-
-#### **Stage 7: DAST Scan (OWASP ZAP)**
-Runs an OWASP ZAP baseline scan against the **live, deployed** application inside the cluster. The ZAP pod mounts an `emptyDir` volume for its working directory, stays alive briefly after the scan so the HTML report can be copied out via `kubectl cp`, and is then cleaned up. Findings do not fail the build — they are reported for review, not enforced as a hard gate (for now).
+### Accounts & Credentials
+- GitHub account with repository access
+- GitLab account (for GitLab CI phase)
+- Docker Hub account (for pushing images)
+- SonarQube admin credentials (generated after install)
+- Nexus admin credentials (generated after install)
 
 ---
 
 ## 🚀 Setup Guide
 
-### 1. Create Namespaces
+### Phase 1: Jenkins Setup (Existing Infrastructure) — via Helm
+
+#### 1. Create Namespaces
 
 ```bash
 kubectl create namespace jenkins
 kubectl create namespace sonarqube
 kubectl create namespace nexus
+kubectl create namespace argocd
 ```
 
-### 2. Apply Jenkins RBAC
-
-The Jenkins ServiceAccount needs permissions beyond the Kubernetes plugin defaults — specifically `pods/log` and `pods/exec`, required by the DAST stage's `kubectl logs` and `kubectl cp` calls.
+#### 2. Apply RBAC
 
 ```bash
+# Jenkins RBAC (CI server)
 kubectl apply -f jenkins-rbac.yaml
+
+# Application RBAC
+kubectl apply -f kubernetes-rbac.yaml
 ```
 
-### 3. Install Jenkins, SonarQube, and Nexus
+#### 3. Install via Helm
 
 ```bash
 helm repo add jenkins https://charts.jenkins.io
@@ -116,210 +204,355 @@ helm repo add sonarqube https://SonarSource.github.io/helm-chart-sonarqube
 helm repo add sonatype https://sonatype.github.io/helm3-charts/
 helm repo update
 
+# Jenkins with persistent storage
 helm install my-jenkins jenkins/jenkins -n jenkins -f helm-values/jenkins-values.yaml
+
+# SonarQube (increased probe timeouts!)
 helm install sonarqube sonarqube/sonarqube -n sonarqube -f helm-values/sonarqube-values.yaml
+
+# Nexus (increased probe timeouts!)
 helm install nexus sonatype/nexus-repository-manager -n nexus -f helm-values/nexus-values.yml
 ```
 
-### 4. Retrieve Initial Credentials
+#### 4. Install Argo CD (via Kustomize)
+
+> **Note:** Unlike Jenkins, SonarQube, and Nexus (installed via Helm), Argo CD is deployed using **Kustomize** — no Helm chart involved here.
 
 ```bash
-# Jenkins admin password
+kubectl apply -k kustomize-manifests/argocd/
+```
+
+#### 5. Retrieve Credentials
+
+```bash
+# Jenkins
 kubectl get secret --namespace jenkins my-jenkins \
   -o jsonpath="{.data.jenkins-admin-password}" | base64 --decode
 
-# Nexus initial admin password
-kubectl exec -it <nexus-pod-name> -n nexus -- cat /nexus-data/admin.password
+# SonarQube (default: admin/admin)
+kubectl port-forward -n sonarqube svc/sonarqube-sonarqube 9000:9000
+
+# Nexus
+kubectl exec -it <nexus-pod> -n nexus -- cat /nexus-data/admin.password
+
+# Argo CD
+kubectl get secret --namespace argocd argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 --decode
 ```
 
-SonarQube's default login is `admin` / `admin` (you'll be prompted to change it on first login).
+#### 6. Create Jenkins Credentials
 
-### 5. Create Jenkins Credentials
+| ID | Type | Used For |
+|----|------|----------|
+| `docker-cred` | Username/Password | Kaniko → Docker Hub |
+| `nexus-cred` | Username/Password | Maven → Nexus |
+| `sonarqube-token` | Secret Text | SonarQube auth |
+| `github-cred` | Username/Personal Access Token | GitOps manifest updates |
 
-In **Manage Jenkins → Credentials → (global)**, add:
+#### 7. Configure Nexus Maven Proxy
 
-| Credential ID | Type | Used For |
-| --- | --- | --- |
-| `docker-cred` | Username with password | Pushing images from Kaniko to Docker Hub |
-| `nexus-cred` | Username with password | Publishing artifacts to Nexus |
-| `sonarqube-token` | Secret text | Authenticating with SonarQube |
+1. **Create `maven-central-proxy` repository** (type: maven2 proxy)
+   - Remote storage: `https://repo1.maven.org/maven2/`
 
-### 6. Create the Multibranch Pipeline Job
+2. **Create `maven-public` repository** (type: maven2 group)
+   - Members: `maven-central-proxy` + `maven-releases` + `maven-snapshots`
+
+#### 8. Create Jenkins Multibranch Pipeline Job
 
 - **New Item → Multibranch Pipeline**
-- Add the GitHub repository as a branch source
-- Build configuration: **by Jenkinsfile**, script path `Jenkinsfile` (or the correct path if nested)
+- Branch source: GitHub repository
+- Build configuration: by Jenkinsfile
 
-### 7. Configure Nexus as a Maven Proxy (speeds up builds, reduces external dependency)
+---
 
-Instead of Maven hitting Maven Central directly on every build, point it at Nexus so previously-downloaded dependencies are served from a local cache.
+### Phase 2: GitOps Setup (Argo CD via Kustomize)
 
-1. In Nexus: **⚙️ Settings → Repository → Repositories → Create repository**
-2. Choose **maven2 (proxy)**:
-   - **Name:** `maven-central-proxy`
-   - **Remote storage:** `https://repo1.maven.org/maven2/`
-3. Create a second repository, **maven2 (group)**:
-   - **Name:** `maven-public`
-   - **Member repositories:** add `maven-central-proxy` (and `maven-releases` / `maven-snapshots` if present)
-4. In the Jenkinsfile's Maven stages, mirror all traffic through the group repo via a generated `settings.xml`:
+#### 1. Create Argo CD Application
 
-```xml
-<mirror>
-  <id>nexus</id>
-  <mirrorOf>*</mirrorOf>
-  <url>http://nexus-nexus-repository-manager.nexus.svc.cluster.local:8081/repository/maven-public/</url>
-</mirror>
+Navigate to Argo CD UI (localhost:8083) and create application:
+
+- **Name:** `spring-boot-app`
+- **Repository URL:** `https://github.com/Mansourx83/spring-boot-app-manifests-gitops.git`
+- **Path:** `.` (root)
+- **Destination Cluster:** `kubernetes.default.svc`
+- **Destination Namespace:** `jenkins`
+- **Sync Policy:** Automatic
+
+Or use YAML:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: spring-boot-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Mansourx83/spring-boot-app-manifests-gitops.git
+    targetRevision: main
+    path: .
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: jenkins
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
 ```
 
 ---
 
-### 8. Run the Pipeline
+### Phase 3: GitLab CI/CD Migration (🔄 In Progress)
 
-Trigger a build and monitor each stage's console output. On first run, expect the image pulls (Kaniko, Syft/Grype installers, ZAP) to add a few extra minutes versus subsequent runs.
+#### 1. Create GitLab Project
+
+- Import from GitHub or create new
+- Copy `.gitlab-ci.yml` to root
+
+#### 2. Install GitLab Runner
+
+```bash
+# On Kubernetes (recommended)
+helm repo add gitlab https://charts.gitlab.io
+helm install gitlab-runner gitlab/gitlab-runner -n gitlab-runner --create-namespace \
+  --set gitlab-url=https://gitlab.com/ \
+  --set gitlabToken=<YOUR_RUNNER_TOKEN> \
+  --set runners.image=ubuntu:22.04
+```
+
+#### 3. Push `.gitlab-ci.yml`
+
+(See GitLab section below)
+
+> **Status:** This phase is still being worked on — pipeline logic is being ported over from the Jenkinsfile, and stage-by-stage validation against GitLab Runner is ongoing.
 
 ---
 
-## 🔁 Disaster Recovery — Rebuilding From Scratch
+### Phase 4: Prometheus + Grafana (Planned — via Kustomize)
 
-Kind clusters (and the tools installed on them) are disposable — a machine restart, an accidental `kind delete cluster`, or a Docker Desktop reset can wipe everything. This section is the exact sequence to get back to a working state, based on real recoveries done while building this project.
+> **Note:** Observability stack will be deployed via **Kustomize**, consistent with Argo CD's installation method — not Helm, unlike Jenkins/SonarQube/Nexus.
 
-### 1. Recreate the cluster (if needed)
-
-```bash
-kind create cluster --config kind-config.yaml
-```
-
-### 2. Recreate namespaces
+#### 1. Create Namespace & Deploy
 
 ```bash
-kubectl create namespace jenkins
-kubectl create namespace sonarqube
-kubectl create namespace nexus
+kubectl create namespace monitoring
+kubectl apply -k kustomize-manifests/observability/base/
 ```
 
-### 3. Reapply RBAC (before installing Jenkins)
+Or target a specific environment overlay:
 
 ```bash
-kubectl apply -f jenkins-rbac.yaml
-kubectl create serviceaccount jenkins -n jenkins
+kubectl apply -k kustomize-manifests/observability/overlays/prod/
 ```
 
-### 4. Reinstall Jenkins, SonarQube, and Nexus
+#### 2. Verify Deployment
 
 ```bash
-helm repo add jenkins https://charts.jenkins.io
-helm repo add sonarqube https://SonarSource.github.io/helm-chart-sonarqube
-helm repo add sonatype https://sonatype.github.io/helm3-charts/
-helm repo update
-
-helm install my-jenkins jenkins/jenkins -n jenkins -f helm-values/jenkins-values.yaml
-helm install sonarqube sonarqube/sonarqube -n sonarqube -f helm-values/sonarqube-values.yaml
-helm install nexus sonatype/nexus-repository-manager -n nexus -f helm-values/nexus-values.yml
+kubectl get pods -n monitoring
+kubectl port-forward -n monitoring svc/grafana 3000:3000
+kubectl port-forward -n monitoring svc/prometheus 9090:9090
 ```
 
-Watch each one until it reaches `1/1 Running` **without repeated restarts** before moving on — SonarQube and Nexus can both take 5–15 minutes on first boot:
+#### 3. Kustomize Structure
 
-```bash
-kubectl get pods -n jenkins -w
-kubectl get pods -n sonarqube -w
-kubectl get pods -n nexus -w
+```
+kustomize-manifests/observability/
+├── base/
+│   ├── namespace.yaml
+│   ├── prometheus/
+│   │   ├── prometheus-deployment.yaml
+│   │   ├── prometheus-service.yaml
+│   │   ├── prometheus-configmap.yaml
+│   │   └── prometheus-rbac.yaml
+│   ├── grafana/
+│   │   ├── grafana-deployment.yaml
+│   │   ├── grafana-service.yaml
+│   │   └── grafana-datasource-configmap.yaml
+│   └── kustomization.yaml
+└── overlays/
+    └── prod/
+        └── kustomization.yaml
 ```
 
-### 5. Recreate all Jenkins credentials
+Dashboards to create:
+- **Pipeline Metrics:** Build duration, success rates, stage breakdowns
+- **Application Metrics:** Request rate, latency, error rate, resource usage
+- **Infrastructure Metrics:** Cluster CPU/memory, pod restarts, network I/O
 
-Everything below was lost on the last full reset and had to be recreated from scratch — **Jenkins Credentials are not preserved unless the Helm release keeps the same PersistentVolume**:
-
-| Credential ID | Type | Source |
-| --- | --- | --- |
-| `docker-cred` | Username with password | Your Docker Hub account |
-| `nexus-cred` | Username with password | Nexus admin (or a scoped deploy user) — get the initial password via `kubectl exec -it <nexus-pod> -n nexus -- cat /nexus-data/admin.password` |
-| `sonarqube-token` | Secret text | Generate a new **User Token** in SonarQube: My Account → Security → Generate Tokens (any token from before a SonarQube reinstall is invalid) |
-
-### 6. Reconfigure the Nexus Maven proxy
-
-Repeat step 7 above (`maven-central-proxy` + `maven-public` group) — this is Nexus-side configuration and does **not** survive a Nexus reinstall.
-
-### 7. Recreate the Multibranch Pipeline job
-
-**New Item → Multibranch Pipeline** → point it at the GitHub repo → Build configuration: by Jenkinsfile.
-
-### 8. Run a build and verify every stage
-
-Watch the console output for all seven stages (Checkout → SonarQube → Nexus → Kaniko → Syft/Grype → Deploy → ZAP). Common first-run-after-recovery issues and their fixes are listed in the Troubleshooting table below — most have already been hit once and solved during this project's setup.
+> **Status:** This phase has not been implemented yet — the Kustomize structure above is the planned layout.
 
 ---
 
-## 🔐 Jenkins Credentials Required
+## 📋 File Organization
 
-| Credential ID | Type | Used For |
-| --- | --- | --- |
-| **docker-cred** | Username/Password | Kaniko image push to Docker Hub |
-| **nexus-cred** | Username/Password | Maven artifact publish to Nexus |
-| **sonarqube-token** | Secret Text | SonarQube analysis authentication |
-
----
-
-## 📂 Repository Structure
+### Main Repository (`CI-CD-Project`)
 
 ```
-<repo-root>/
-├── spring-boot-app/
-│   ├── src/main
-│   ├── Dockerfile
+CI-CD-Project/
+├── spring-boot-app/              # Application source code
+│   ├── src/main/java/...
 │   ├── pom.xml
+│   ├── Dockerfile
 │   └── README.md
-├── spring-boot-app-manifests/
+├── spring-boot-app-manifests/    # (Legacy, moved to separate repo)
 │   ├── deployment.yaml
 │   └── service.yaml
-├── Jenkinsfile
+├── .gitlab-ci.yml                # GitLab CI pipeline
+├── Jenkinsfile                   # Jenkins pipeline (legacy)
+├── syft-grype.Dockerfile         # Custom Syft+Grype image
+├── helm-values/                  # Helm configurations (Jenkins, SonarQube, Nexus)
+│   ├── jenkins-values.yaml
+│   ├── sonarqube-values.yaml
+│   └── nexus-values.yml
+├── kustomize-manifests/          # Kustomize configs
+│   ├── argocd/                   # Argo CD install
+│   │   └── kustomization.yaml
+│   └── observability/            # Prometheus + Grafana install
+│       ├── base/
+│       └── overlays/
+├── kubernetes-rbac.yaml          # App-level RBAC
+├── jenkins-rbac.yaml             # Jenkins RBAC (legacy)
+├── .gitignore
+└── README.md
+```
+
+### GitOps Repository (`spring-boot-app-manifests-gitops`)
+
+```
+spring-boot-app-manifests-gitops/
+├── deployment.yaml               # Updated by Jenkins/GitLab CI
+├── service.yaml
+├── kustomization.yaml
 └── README.md
 ```
 
 ---
 
-## 🧭 Pipeline Flow Diagram
+## 🔐 Security Best Practices
 
-```
-Git Push
-   │
-   ▼
-[Checkout] → [SonarQube Analysis] → [Publish to Nexus]
-   │
-   ▼
-[Build & Push Image — Kaniko] → [SBOM + CVE Scan — Syft/Grype]
-   │
-   ▼
-[Deploy to Kubernetes] → [DAST Scan — OWASP ZAP]
-```
+✅ **Quality gates first:** SonarQube runs before packaging/building
+✅ **Rootless builds:** Kaniko used instead of Docker socket
+✅ **SBOM tracking:** Every image gets Syft-generated SBOM
+✅ **CVE scanning:** Grype gates on high/critical vulnerabilities
+✅ **No credentials in code:** All secrets in Jenkins/GitLab CI variables
+✅ **RBAC isolation:** Minimal permissions per ServiceAccount
+✅ **GitOps separation:** CI writes Git, CD reads Git (audit trail in Git history)
+✅ **Runtime scanning:** DAST scans live application, not just static code/images
 
 ---
 
-## 🛡️ Best Practices Applied
+## 🔄 Disaster Recovery
 
-- ✅ Quality and security checks run **before** anything is published or built (SonarQube first).
-- ✅ No plaintext credentials in the Jenkinsfile — everything goes through Jenkins Credentials.
-- ✅ Rootless image builds via Kaniko instead of mounting a Docker socket.
-- ✅ Every built image gets an SBOM and a CVE scan before deployment.
-- ✅ The live application is scanned post-deployment, not just the static code/image.
-- ✅ SBOM, vulnerability, and DAST reports are archived as Jenkins build artifacts for traceability across builds.
+### Full Cluster Reset
+
+```bash
+# Delete and recreate Kind cluster
+kind delete cluster
+kind create cluster --config kind-config.yaml
+
+# Recreate namespaces
+kubectl create namespace jenkins sonarqube nexus argocd
+
+# Apply RBAC
+kubectl apply -f jenkins-rbac.yaml kubernetes-rbac.yaml
+
+# Reinstall Helm-based charts
+helm install my-jenkins jenkins/jenkins -n jenkins -f helm-values/jenkins-values.yaml
+helm install sonarqube sonarqube/sonarqube -n sonarqube -f helm-values/sonarqube-values.yaml
+helm install nexus sonatype/nexus-repository-manager -n nexus -f helm-values/nexus-values.yml
+
+# Reapply Kustomize-based components
+kubectl apply -k kustomize-manifests/argocd/
+
+# (Once Phase 4 is implemented) reapply observability stack:
+# kubectl apply -k kustomize-manifests/observability/base/
+
+# Recreate credentials (see "Setup" section)
+```
+
+**Credentials that do NOT survive cluster reset:**
+- Jenkins Credentials (docker-cred, nexus-cred, sonarqube-token, github-cred)
+- Nexus Maven proxy configuration
+- SonarQube tokens (regenerate via `My Account → Security`)
+
+**Things that DO survive (if using persistent volumes):**
+- Jenkins job definitions and build history
+- Application deployment history in Argo CD
 
 ---
 
-## 🚨 Troubleshooting Notes (from real issues hit while building this)
+## 🚨 Troubleshooting
 
 | Issue | Cause | Fix |
-| --- | --- | --- |
-| `No plugin found for prefix 'sonar'` | `sonar-maven-plugin` not resolvable by prefix | Use full plugin coordinates: `org.sonarsource.scanner.maven:sonar-maven-plugin:<version>:sonar` |
-| `Not authorized` from SonarQube | Using deprecated `sonar.login` property, or a stale token after a SonarQube reinstall | Use `sonar.token` instead of `sonar.login`; regenerate the token after any SonarQube reinstall |
-| SonarQube / Nexus pods stuck restarting | Default Helm chart probe timeouts too short for slow first-boot (Elasticsearch bootstrap, JVM warm-up) | Increase `initialDelaySeconds`, `timeoutSeconds`, and `failureThreshold` on liveness/readiness/startup probes |
-| Nexus pod stuck `Pending` after reinstall | Old PVC stuck in `Terminating` blocking the new pod | `helm uninstall`, force-delete the namespace, recreate from scratch |
-| `groovy.lang.MissingPropertyException: No such property: docker` | Docker Pipeline plugin not installed in Jenkins | Install the **Docker Pipeline** plugin under Manage Jenkins → Plugins |
-| ZAP stage: `directory '/zap/wrk' is not mounted` | No writable volume provided to the ZAP container for its report output | Mount an `emptyDir` volume at `/zap/wrk` in the ZAP pod spec |
-| `kubectl cp`/`kubectl logs` forbidden for the Jenkins ServiceAccount | RBAC `ClusterRole` missing `pods/log` and `pods/exec` | Add those resources/verbs to `jenkins-rbac.yaml` and reapply |
-| `kubectl cp` fails with "cannot exec into a container in a completed pod" | Pod already reached `Succeeded`/`Failed` before the copy ran | Keep the container alive briefly after the task finishes (e.g. wrap the command with a trailing `sleep`) before copying and then deleting the pod |
+|-------|-------|-----|
+| SonarQube/Nexus pods restart repeatedly | Probe timeouts too short for slow startup (7-15 min) | Increase `initialDelaySeconds=180`, `timeoutSeconds=10`, `failureThreshold=20-30` in Helm values |
+| Nexus PVC stuck `Terminating` | Incomplete resource cleanup | `helm uninstall nexus -n nexus`, `kubectl delete namespace nexus --force --grace-period=0`, recreate |
+| ZAP scan fails: "directory not mounted" | No volume for `/zap/wrk` | Add `emptyDir` volume to ZAP pod spec |
+| `kubectl cp` fails for ZAP | Pod already completed | Keep container alive with `sleep 300` after scan, then copy, then delete |
+| RBAC: `pods/log` forbidden | Jenkins ServiceAccount missing permissions | Add `pods/log` and `pods/exec` to `jenkins-rbac.yaml` ClusterRole |
+| SonarQube: "Not authorized" | Stale token after reinstall | Regenerate token in `My Account → Security` after SonarQube reinstall |
+| Maven can't find artifact | Not using Nexus proxy | Configure Maven `settings.xml` mirror to point to Nexus `maven-public` group repo |
 
 ---
 
-## ✅ Summary
+## 📊 Observability Roadmap
 
-This pipeline automates the full CI/CD lifecycle for a Spring Boot application — from checkout through static analysis, artifact publishing, rootless image builds, SBOM/vulnerability scanning, Kubernetes deployment, and finally dynamic security testing against the live app — using **Maven, SonarQube, Nexus, Kaniko, Syft, Grype, Kubernetes, and OWASP ZAP**, all running self-hosted inside the cluster.
+### Prometheus + Grafana (Kustomize) — 📋 Planned
+
+**Metrics to collect:**
+- **Pipeline metrics:** Build duration, success rate, stage duration breakdown
+- **Application metrics:** Request rate, response latency, error rate
+- **Infrastructure metrics:** Pod CPU/memory usage, cluster capacity, network I/O
+- **Security metrics:** CVE scan results trend, DAST findings count
+
+**Dashboards to build:**
+1. **CI/CD Health Dashboard** — build trends, deployment frequency, lead time
+2. **Application Performance Dashboard** — request rate, latency p50/p95/p99, errors
+3. **Infrastructure Dashboard** — cluster utilization, pod restarts, disk I/O
+
+---
+
+## 📝 Summary
+
+This project demonstrates an **enterprise-scale CI/CD platform** with:
+
+✅ **Jenkins-based CI** (Phase 1 — complete, legacy, Helm)
+🔄 **GitLab CI** (Phase 3 — in progress, replacing Jenkins, same pipeline logic)
+✅ **GitOps deployment** (Phase 2 — complete, fully automatic, Kustomize)
+✅ **Multi-layer security scanning** (static + dynamic)
+✅ **Production-grade disaster recovery** (documented and tested)
+📋 **Observability** (Phase 4 — planned, Prometheus + Grafana )
+
+**Total automation:** From code commit to production-ready, security-tested deployment — **zero manual steps** after initial Argo CD setup.
+
+---
+
+## 🎯 Next Steps
+
+1. ✅ Complete Phase 1 (Jenkins — Helm) — **DONE**
+2. ✅ Complete Phase 2 (Argo CD GitOps — Kustomize) — **DONE**
+3. 🔄 Complete Phase 3 (GitLab CI/CD) — **IN PROGRESS**
+4. 📋 Complete Phase 4 (Prometheus + Grafana) — **PLANNED**
+
+---
+
+## 📚 References
+
+- [Kubernetes Best Practices](https://kubernetes.io/docs/)
+- [GitOps with Argo CD](https://argo-cd.readthedocs.io/)
+- [GitLab CI/CD](https://docs.gitlab.com/ee/ci/)
+- [Jenkins Kubernetes Plugin](https://plugins.jenkins.io/kubernetes/)
+- [Kaniko Container Builder](https://github.com/GoogleContainerTools/kaniko)
+- [Syft SBOM Tool](https://github.com/anchore/syft)
+- [Grype Vulnerability Scanner](https://github.com/anchore/grype)
+- [OWASP ZAP Security Testing](https://www.zaproxy.org/)
+- [SonarQube Code Quality](https://www.sonarqube.org/)
+- [Nexus Repository Manager](https://www.sonatype.com/products/repository-oss)
+- [Kustomize](https://kustomize.io/)
+
+---
+
+**Project Status:** Production-Ready (Phase 1-2) | GitLab CI In-Progress (Phase 3) | Observability Planned (Phase 4)
+
+**Last Updated:** August 2026
