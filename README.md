@@ -24,7 +24,7 @@ This separation keeps Continuous Integration independent from Continuous Deliver
                            ▼
                   Jenkins Pipeline
                            │
-     ┌──────────────┬──────────────┬──────────────┐
+     ┌──────────────┬──────────────┬
      ▼              ▼              ▼
  SonarQube       Maven Build      Nexus
                            │
