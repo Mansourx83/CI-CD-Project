@@ -190,7 +190,7 @@ OWASP ZAP Scan
 | Repository | Purpose |
 |------------|---------|
 | Spring Boot Application | Application source code |
-| GitOps Repository | Kubernetes deployment manifests managed by Argo CD |
+| Gitops-Manifests | Kubernetes deployment manifests managed by Argo CD |
 
 ---
 
