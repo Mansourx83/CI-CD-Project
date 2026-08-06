@@ -166,34 +166,29 @@ EOF
 
         // GitOps Update: Push new image tag to the manifests repository for Argo CD to sync
         stage('GitOps Update Manifests') {
-            steps {
-                container('kubectl') {
-                    withCredentials([usernamePassword(credentialsId: 'github-cred', passwordVariable: 'GH_PASSWORD', usernameVariable: 'GH_USER')]) {
-                        sh """
-                            git config --global user.email "jenkins@ci.local"
-                            git config --global user.name "Jenkins CI"
-
-                            # Clone the manifests repository
-                            git clone https://\${GH_USER}:\${GH_PASSWORD}@github.com/Mansourx83/spring-boot-app-manifests-gitops.git manifests-repo
-                            cd manifests-repo
-
-                            # Update the image tag in deployment.yaml using double quotes so variables expand
-                            sed -i 's|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${IMAGE_TAG}|g' deployment.yaml
-
-                            # Check if there are changes to commit
-                            if git diff --quiet deployment.yaml; then
-                                echo "No changes detected in deployment.yaml"
-                            else
-                                git add deployment.yaml
-                                git commit -m "CI Update: update image tag to ${IMAGE_TAG}"
-                                git push origin main
-                                echo "Successfully updated manifests in Git for Argo CD!"
-                            fi
-                        """
-                    }
-                }
-            }
+    steps {
+        script {
+            echo "Updating deployment.yaml with new image tag..."
+            sh '''
+            cd /tmp/manifests
+            
+            # Navigate to spring-boot folder and update
+            sed -i "s|image: mansour19/spring-boot-demo:.*|image: mansour19/spring-boot-demo:${BUILD_NUMBER}|" spring-boot/deployment.yaml
+            
+            # Verify the change
+            echo "=== Updated deployment.yaml ==="
+            cat spring-boot/deployment.yaml
+            
+            # Commit and push
+            git config user.email "jenkins@ci-cd.local"
+            git config user.name "Jenkins CI"
+            git add spring-boot/deployment.yaml
+            git commit -m "chore: update spring-boot image tag to ${BUILD_NUMBER}"
+            git push origin main
+            '''
         }
+    }
+}
 
         // Final step: scan the application itself while it's actually running in the cluster
         stage('DAST Scan (OWASP ZAP)') {
