@@ -5,7 +5,21 @@ A production-oriented DevSecOps platform demonstrating a complete CI/CD and GitO
 The project integrates Continuous Integration, DevSecOps, and GitOps using Jenkins, SonarQube, Nexus, Kaniko, Syft, Grype, and Argo CD.
 
 ---
-
+![Jenkins](https://img.shields.io/badge/Jenkins-CI-D24939?style=for-the-badge&logo=jenkins&logoColor=white)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-Orchestration-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)
+![ArgoCD](https://img.shields.io/badge/ArgoCD-GitOps-EF7B4D?style=for-the-badge&logo=argo&logoColor=white)
+![Helm](https://img.shields.io/badge/Helm-Charts-0F1689?style=for-the-badge&logo=helm&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Containers-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![Kaniko](https://img.shields.io/badge/Kaniko-Image_Builder-1E88E5?style=for-the-badge)
+![Maven](https://img.shields.io/badge/Maven-Build-C71A36?style=for-the-badge&logo=apachemaven&logoColor=white)
+![SonarQube](https://img.shields.io/badge/SonarQube-Code_Quality-4E9BCD?style=for-the-badge&logo=sonarqube&logoColor=white)
+![Nexus](https://img.shields.io/badge/Nexus-Artifact_Repo-1B1C30?style=for-the-badge&logo=sonatype&logoColor=white)
+![Syft](https://img.shields.io/badge/Syft-SBOM-5C2D91?style=for-the-badge)
+![Grype](https://img.shields.io/badge/Grype-Vulnerability_Scan-FF6B35?style=for-the-badge)
+![OWASP ZAP](https://img.shields.io/badge/OWASP-ZAP-00549E?style=for-the-badge&logo=owasp&logoColor=white)
+![GitOps](https://img.shields.io/badge/GitOps-ArgoCD-FC6D26?style=for-the-badge)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.5-6DB33F?style=for-the-badge&logo=springboot&logoColor=white)
+---
 # 🎯 Project Goal
 
 The goal of this project is to demonstrate how a modern enterprise CI/CD platform can deliver applications to Kubernetes using GitOps principles.
